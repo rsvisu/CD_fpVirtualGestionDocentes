@@ -10,6 +10,7 @@ use App\Http\Controllers\BajaDocenteController;
 use App\Http\Controllers\Admin\Auth\LoginController as AdminLoginController;
 use App\Http\Controllers\Admin\DocenteController;
 use App\Http\Controllers\Admin\CentroController;
+use App\Http\Controllers\Admin\AltaPlataformaController;
 
 Route::redirect('/', '/login');
 
@@ -33,6 +34,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/alta-docente', [AltaDocenteController::class, 'store'])
         ->name('alta_docente.store');
     Route::get('/comprobar-docente/{dni}', [AltaDocenteController::class, 'comprobarDocente']);
+    Route::get('/alta-docente/preview-email', [AltaDocenteController::class, 'previewEmail'])
+        ->name('alta_docente.preview_email');
 
     // Cambiamos a POST para que sea más fácil de usar en botones simples
     Route::post('/docentes/baja/{dni}', [BajaDocenteController::class, 'destroy'])->name('docente.baja');
@@ -114,7 +117,11 @@ Route::middleware('web')->prefix('admin')->name('admin.')->group(function () {
         Route::get('centros/exportar-csv', [CentroController::class, 'exportCentrosCSV'])
             ->name('centros.export.csv');
 
-
+        Route::get('alta-plataforma', [AltaPlataformaController::class, 'index'])
+            ->name('alta-plataforma');
+        Route::get('alta-plataforma/{id}/preview', [AltaPlataformaController::class, 'preview']);
+        Route::post('alta-plataforma/procesar', [AltaPlataformaController::class, 'procesarAltas'])
+            ->name('alta-plataforma.procesar');
 
     });
 });
