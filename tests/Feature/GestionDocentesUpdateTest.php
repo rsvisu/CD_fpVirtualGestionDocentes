@@ -85,8 +85,8 @@ test('el store no devuelve error de validación cuando el DNI ya existe (upsert)
     $response->assertSessionDoesntHaveErrors(['dni']);
 });
 
-/** 10. UPSERT - El email se actualiza correctamente en la base de datos */
-test('el store actualiza el email_virtual del docente cuando ya existe en BD', function () {
+/** 10. UPSERT - El email_virtual NO se cambia si el docente ya lo tiene asignado (#58) */
+test('el store NO modifica el email_virtual si el docente ya lo tiene asignado', function () {
     $centro = Centro::forceCreate(['id_centro' => 'U300', 'nombre' => 'Centro Update Test']);
     $usuario = Usuario::factory()->create(['id_centro' => 'U300']);
 
@@ -94,22 +94,29 @@ test('el store actualiza el email_virtual del docente cuando ya existe en BD', f
         'dni'           => '44444444W',
         'nombre'        => 'Ana',
         'apellido'      => 'Martínez Gil',
-        'email_virtual' => 'ana@viejo.com',
+        'email_virtual' => 'amartinezg@fpvirtualaragon.es',
     ]);
 
     $datos = [
         'dni'      => '44444444W',
         'nombre'   => 'Ana',
         'apellido' => 'Martínez Gil',
-        'email'    => 'ana@nuevo.com',
+        'email'    => 'ana.personal@nuevo.com',  // email personal (va a centro_docente)
         'id_centro' => 'U300',
     ];
 
     $this->actingAs($usuario)->post('/alta-docente', $datos);
 
+    // El email_virtual original se mantiene intacto
     $this->assertDatabaseHas('docentes', [
         'dni'           => '44444444W',
-        'email_virtual' => 'ana@nuevo.com',
+        'email_virtual' => 'amartinezg@fpvirtualaragon.es',
+    ]);
+
+    // El email personal va a centro_docente, no a email_virtual
+    $this->assertDatabaseHas('centro_docente', [
+        'dni'   => '44444444W',
+        'email' => 'ana.personal@nuevo.com',
     ]);
 });
 

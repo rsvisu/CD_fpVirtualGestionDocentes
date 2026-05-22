@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Docente;
+use App\Services\GeneradorEmailVirtualService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
@@ -10,9 +11,10 @@ use App\Models\CentroDocente;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
-
 class AltaDocenteController extends Controller
 {
+    public function __construct(private GeneradorEmailVirtualService $emailService) {}
+
     public function create()
     {
         $centro = Auth::user()->centro;
@@ -22,30 +24,48 @@ class AltaDocenteController extends Controller
     /**
      * Normaliza nombres quitando caracteres prohibidos y poniendo mayúsculas.
      */
-    private function normalizarNombreYApellido($string) {
-        // Primero eliminamos los caracteres "º" y "."
+    private function normalizarNombreYApellido(string $string): string
+    {
         $limpio = str_replace(['º', '.'], '', $string);
-
         return mb_convert_case(mb_strtolower($limpio, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
     }
 
+    /**
+     * AJAX — Previsualización del email @fpvirtualaragon.es sin resolver colisiones.
+     * GET /alta-docente/preview-email?nombre=X&apellido=Y
+     */
+    public function previewEmail(Request $request)
+    {
+        $nombre   = trim($request->input('nombre', ''));
+        $apellido = trim($request->input('apellido', ''));
+
+        if (empty($nombre) || empty($apellido)) {
+            return response()->json(['email' => null]);
+        }
+
+        $nombreNorm   = $this->normalizarNombreYApellido($nombre);
+        $apellidoNorm = $this->normalizarNombreYApellido($apellido);
+
+        return response()->json([
+            'email' => $this->emailService->previsualizarEmail($nombreNorm, $apellidoNorm),
+        ]);
+    }
 
     public function store(Request $request)
     {
-        // 1. Validamos que el profesor esté y que haya al menos un módulo seleccionado
+        // ── Validación básica ─────────────────────────────────────────────
         $request->validate([
-            'dni' => 'required|string|max:10',
-            'email' => 'required|email',
-            'nombre' => 'required|string|max:255',
-            'apellido' => 'required|string|max:255',
-            'id_centro' => 'required'
+            'dni'       => 'required|string|max:10',
+            'email'     => 'required|email',
+            'nombre'    => 'required|string|max:255',
+            'apellido'  => 'required|string|max:255',
+            'id_centro' => 'required',
         ]);
 
         $dni = strtoupper($request->dni);
 
-
         $validator = Validator::make($request->all(), [
-           'dni' => [
+            'dni' => [
                 'required',
                 'string',
                 'max:10',
@@ -58,20 +78,13 @@ class AltaDocenteController extends Controller
                     }
                 },
             ],
-
-            'email' => [
-                'required',
-                'email',
-            ],
-
-            'nombre' => 'required|string|max:255',
-            'apellido' => 'required|string|max:255',
+            'email'     => ['required', 'email'],
+            'nombre'    => 'required|string|max:255',
+            'apellido'  => 'required|string|max:255',
             'id_centro' => 'required|string',
-            // TAREA E: Validamos el nuevo campo de formación
             'formacion' => 'nullable|boolean',
         ]);
 
-        //Si da algun error
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
         }
@@ -79,132 +92,125 @@ class AltaDocenteController extends Controller
         DB::beginTransaction();
 
         try {
-            // Buscar el docente existente por DNI
             $docente = Docente::where('dni', $dni)->first();
 
-            // 2. ASIGNACIÓN MASIVA DE MÓDULOS
-            // Primero borramos las asignaciones antiguas para no duplicar (si es necesario)
-        DB::table('docente_modulo_ciclo')->where('dni', $dni)->delete();
-            // Luego insertamos cada módulo seleccionado
+            // ── Módulos ───────────────────────────────────────────────────
+            DB::table('docente_modulo_ciclo')->where('dni', $dni)->delete();
             if ($request->has('modulos')) {
-                // Obtenemos el ID del centro del usuario logueado para que sea automático
-                $id_centro = Auth::user()->centro->id_centro;
                 foreach ($request->modulos as $id_modulo) {
-
                     DB::table('docente_modulo_ciclo')->insert([
-                        'dni' => strtoupper($dni),
-                        'id_modulo' => $id_modulo,
+                        'dni'        => strtoupper($dni),
+                        'id_modulo'  => $id_modulo,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
                 }
             }
-            if ($docente) {
-                // Si el nombre, apellido o email han cambiado, actualizarlos
-                $nombreNuevo = $this->normalizarNombreYApellido($request->nombre);
-                $apellidoNuevo = $this->normalizarNombreYApellido($request->apellido);
 
+            $nombreNorm   = $this->normalizarNombreYApellido($request->nombre);
+            $apellidoNorm = $this->normalizarNombreYApellido($request->apellido);
+
+            if ($docente) {
+                // ── Actualizar docente existente ──────────────────────────
                 $actualizado = false;
 
-                if ($docente->nombre !== $nombreNuevo) {
-                    $docente->nombre = $nombreNuevo;
+                if ($docente->nombre !== $nombreNorm) {
+                    $docente->nombre = $nombreNorm;
                     $actualizado = true;
                 }
 
-                if ($docente->apellido !== $apellidoNuevo) {
-                    $docente->apellido = $apellidoNuevo;
+                if ($docente->apellido !== $apellidoNorm) {
+                    $docente->apellido = $apellidoNorm;
                     $actualizado = true;
                 }
 
-                // Actualizar el email si el usuario lo ha corregido
-                if ($docente->email_virtual !== $request->email) {
-                    $docente->email_virtual = $request->email;
+                // Solo generar email_virtual si el docente aún no lo tiene (#58)
+                if (empty($docente->email_virtual)) {
+                    $docente->email_virtual = $this->emailService->generarOObtenerExistente(
+                        $nombreNorm, $apellidoNorm, $dni
+                    );
                     $actualizado = true;
                 }
 
-                if($docente->de_baja) {
+                if ($docente->de_baja) {
                     $docente->de_baja = false;
                     $actualizado = true;
                 }
 
                 if ($actualizado) {
                     $docente->save();
-
-                    // Comando moosh para actualizar el docente en Moodle ( Uso de escapehellarg para que los comandos sean seguros y no puedan poner algo malicioso los usuarios )
-                    /*$command = "moosh user-update" .
-                        " --firstname " . escapeshellarg($request->nombre) .
-                        " --lastname " . escapeshellarg($request->apellido) .
-                        " " . escapeshellarg($dni);
-
-                    $this->ejecutarMoosh($command);*/
                 }
 
             } else {
-                // Si no existe, se crea
+                // ── Crear nuevo docente ───────────────────────────────────
+                // El email @fpvirtualaragon.es se genera automáticamente (#58)
+                $emailVirtual = $this->emailService->generarOObtenerExistente(
+                    $nombreNorm, $apellidoNorm, $dni
+                );
+
                 $docente = Docente::create([
-                    'dni' => $dni,
-                    'nombre' => $this->normalizarNombreYApellido($request->nombre),
-                    'apellido' => $this->normalizarNombreYApellido($request->apellido),
-                    'formacion' => $request->boolean('formacion'), // Guardamos el booleano
-                    'email_virtual' => $request->email,
+                    'dni'           => $dni,
+                    'nombre'        => $nombreNorm,
+                    'apellido'      => $apellidoNorm,
+                    'formacion'     => $request->boolean('formacion'),
+                    'email_virtual' => $emailVirtual,
                 ]);
-
-                // Comando moosh para crear nuevo usuario en Moodle ( Uso de escapehellarg para que los comandos sean seguros y no puedan poner algo malicioso los usuarios )
-                /*$command = "moosh user-create" .
-                    " --email " . escapeshellarg($request->email) .
-                    " --password " . escapeshellarg($dni) . // DNI de contraseña
-                    " --firstname " . escapeshellarg($request->nombre) .
-                    " --lastname " . escapeshellarg($request->apellido) .
-                    " " . escapeshellarg($dni);
-
-                $this->ejecutarMoosh($command); */
             }
 
-            // Asignar el docente al centro
+            // ── Asignar al centro ─────────────────────────────────────────
+            // El email personal (no @fpvirtualaragon.es) va en la tabla pivote
             CentroDocente::create([
-                'dni' => $dni,
+                'dni'       => $dni,
                 'id_centro' => $request->id_centro,
-                'email' => $request->email,
+                'email'     => $request->email,
             ]);
 
             DB::commit();
 
-            return redirect()->route('establecer_docencia.index')->with('success', 'Docente asignado correctamente.')->with('docente_dni', $docente->dni);
+            return redirect()
+                ->route('establecer_docencia.index')
+                ->with('success', 'Docente asignado correctamente.')
+                ->with('docente_dni', $docente->dni);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->withErrors(['error' => 'Hubo un error al guardar el docente.' . $e->getMessage()])->withInput();
+            return redirect()
+                ->back()
+                ->withErrors(['error' => 'Hubo un error al guardar el docente: ' . $e->getMessage()])
+                ->withInput();
         }
-
     }
 
-    //Comprueba si el dni existe para autocompletar los campos 'Nombre' y 'Apellido'
+    /**
+     * AJAX — Comprueba si el DNI existe para autocompletar el formulario.
+     * Devuelve también el email_virtual si ya está generado (#58).
+     */
     public function comprobarDocente($dni)
     {
-        $docente = Docente::where('dni', $dni)->first();
-
+        $docente  = Docente::where('dni', $dni)->first();
         $idCentro = Auth::user()->centro->id_centro;
 
         if ($docente) {
             return response()->json([
-                'existe' => true,
-                'nombre' => $docente->nombre,
-                'apellido' => $docente->apellido,
-                'email' => CentroDocente::where('dni', $dni)->where('id_centro', $idCentro)->value('email') // Obtener email del docente si existe
+                'existe'        => true,
+                'nombre'        => $docente->nombre,
+                'apellido'      => $docente->apellido,
+                'email'         => CentroDocente::where('dni', $dni)
+                                    ->where('id_centro', $idCentro)
+                                    ->value('email'),
+                'email_virtual' => $docente->email_virtual,
             ]);
         }
 
         return response()->json(['existe' => false]);
     }
 
-    //Ejecuta & Control de errores para comandos moosh
-    protected function ejecutarMoosh($command)
+    protected function ejecutarMoosh(string $command): void
     {
         exec($command, $output, $status);
         if ($status !== 0) {
-            Log::error("Fallo Moosh: " . implode("\n", $output));
+            \Log::error("Fallo Moosh: " . implode("\n", $output));
             throw new \Exception("Fallo al ejecutar comando Moosh.");
         }
     }
-
 }

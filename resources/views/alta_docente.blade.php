@@ -89,6 +89,27 @@
                         </div>
                     </div>
 
+                    <!-- Email @fpvirtualaragon.es generado automáticamente (#58) -->
+                    <div class="alta-form-group">
+                        <label class="alta-label">
+                            <i class="fas fa-at mr-1"></i> Correo @fpvirtualaragon.es (generado automáticamente):
+                        </label>
+                        <div class="input-wrapper" style="position:relative;">
+                            <input type="text" id="email_virtual_preview"
+                                   class="alta-input"
+                                   readonly
+                                   placeholder="Se generará al introducir nombre y apellidos"
+                                   style="background:#f3f4f6; color:#4f46e5; font-weight:500;">
+                            <span id="email-spinner" style="display:none; position:absolute; right:10px; top:50%; transform:translateY(-50%);">
+                                <i class="fas fa-spinner fa-spin text-indigo-400"></i>
+                            </span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">
+                            <i class="fas fa-info-circle"></i>
+                            Este correo se asigna automáticamente. No es editable.
+                        </p>
+                    </div>
+
                     <input type="hidden" name="id_centro" value="{{ $centro->id_centro }}">
 
                     <div class="alta-form-actions">
@@ -113,6 +134,35 @@
             const emailInput = document.getElementById('email');
             const toggleNombre = document.getElementById('toggle-nombre');
             const toggleApellido = document.getElementById('toggle-apellido');
+            const emailVirtualPreview = document.getElementById('email_virtual_preview');
+            const emailSpinner = document.getElementById('email-spinner');
+
+            let previewTimer = null;
+
+            function actualizarPreviewEmail() {
+                const nombre = nombreInput.value.trim();
+                const apellido = apellidoInput.value.trim();
+
+                if (!nombre || !apellido) {
+                    emailVirtualPreview.value = '';
+                    return;
+                }
+
+                clearTimeout(previewTimer);
+                previewTimer = setTimeout(() => {
+                    emailSpinner.style.display = 'inline';
+                    fetch(`/alta-docente/preview-email?nombre=${encodeURIComponent(nombre)}&apellido=${encodeURIComponent(apellido)}`)
+                        .then(r => r.ok ? r.json() : Promise.reject())
+                        .then(data => {
+                            emailVirtualPreview.value = data.email ?? '';
+                        })
+                        .catch(() => { emailVirtualPreview.value = ''; })
+                        .finally(() => { emailSpinner.style.display = 'none'; });
+                }, 400);
+            }
+
+            nombreInput.addEventListener('input', actualizarPreviewEmail);
+            apellidoInput.addEventListener('input', actualizarPreviewEmail);
 
             function setLockIcon(input, icon) {
                 if (input.readOnly) {
@@ -179,6 +229,13 @@
                             // Rellenar el email con el valor actual de BD (editable por el usuario)
                             if (data.email) {
                                 emailInput.value = data.email;
+                            }
+
+                            // Mostrar email_virtual si ya está generado
+                            if (data.email_virtual) {
+                                emailVirtualPreview.value = data.email_virtual;
+                            } else {
+                                actualizarPreviewEmail();
                             }
 
                             // Mostrar notificación con aviso de revisión de email
