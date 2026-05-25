@@ -101,26 +101,71 @@ class AltaPlataformaController extends Controller
                             ->whereNotNull('email')->where('email', '!=', '')
                             ->value('email') ?? '';
 
-        // 29 columnas Google Workspace
+        // 29 columnas Google Workspace (#61)
         $googleCols = [
-            $docente->nombre,           // 1  First Name
-            $docente->apellido,         // 2  Last Name
-            $docente->email_virtual,    // 3  Email Address
-            self::PASSWORD_INICIAL,     // 4  Password
-            '',                         // 5  Password Hash Function
-            self::ORG_UNIT,             // 6  Org Unit Path
-            '',                         // 7  New Primary Email
-            $emailPersonal,             // 8  Recovery Email
-            '', '', '', '', '', '', '', '', // 9-16 empty
+            $docente->nombre,           //  1 First Name [Required]
+            $docente->apellido,         //  2 Last Name [Required]
+            $docente->email_virtual,    //  3 Email Address [Required]
+            self::PASSWORD_INICIAL,     //  4 Password [Required]
+            '',                         //  5 Password Hash Function [UPLOAD ONLY]
+            self::ORG_UNIT,             //  6 Org Unit Path [Required]
+            '',                         //  7 New Primary Email [UPLOAD ONLY]
+            $emailPersonal,             //  8 Recovery Email
+            '',                         //  9 Home Secondary Email
+            $emailPersonal,             // 10 Work Secondary Email
+            '',                         // 11 Recovery Phone
+            '',                         // 12 Work Phone
+            '',                         // 13 Home Phone
+            '',                         // 14 Mobile Phone
+            '',                         // 15 Work Address
+            '',                         // 16 Home Address
             $docente->dni,              // 17 Employee ID
-            '', '', '', '', '', '', '', '', // 18-25 empty
+            '',                         // 18 Employee Type
+            '',                         // 19 Employee Title
+            '',                         // 20 Manager Email
+            '',                         // 21 Department
+            '',                         // 22 Cost Center
+            '',                         // 23 Building ID
+            '',                         // 24 Floor Name
+            '',                         // 25 Floor Section
             'TRUE',                     // 26 Change Password at Next Sign-In
-            '', '',                     // 27-28 New Status, New Licenses
+            'Active',                   // 27 New Status [UPLOAD ONLY]
+            '',                         // 28 New Licenses [UPLOAD ONLY]
             'FALSE',                    // 29 Advanced Protection Program enrollment
         ];
 
-        // Moodle: mismo formato de 29 columnas que Google Workspace
-        $moodleCols = $googleCols;
+        // 29 columnas Moodle (#62) — sin Work Secondary Email ni New Status
+        $moodleCols = [
+            $docente->nombre,           //  1 First Name [Required]
+            $docente->apellido,         //  2 Last Name [Required]
+            $docente->email_virtual,    //  3 Email Address [Required]
+            self::PASSWORD_INICIAL,     //  4 Password [Required]
+            '',                         //  5 Password Hash Function [UPLOAD ONLY]
+            self::ORG_UNIT,             //  6 Org Unit Path [Required]
+            '',                         //  7 New Primary Email [UPLOAD ONLY]
+            $emailPersonal,             //  8 Recovery Email
+            '',                         //  9 Home Secondary Email
+            '',                         // 10 Work Secondary Email
+            '',                         // 11 Recovery Phone
+            '',                         // 12 Work Phone
+            '',                         // 13 Home Phone
+            '',                         // 14 Mobile Phone
+            '',                         // 15 Work Address
+            '',                         // 16 Home Address
+            $docente->dni,              // 17 Employee ID
+            '',                         // 18 Employee Type
+            '',                         // 19 Employee Title
+            '',                         // 20 Manager Email
+            '',                         // 21 Department
+            '',                         // 22 Cost Center
+            '',                         // 23 Building ID
+            '',                         // 24 Floor Name
+            '',                         // 25 Floor Section
+            'TRUE',                     // 26 Change Password at Next Sign-In
+            '',                         // 27 New Status [UPLOAD ONLY]
+            '',                         // 28 New Licenses [UPLOAD ONLY]
+            'FALSE',                    // 29 Advanced Protection Program enrollment
+        ];
 
         return response()->json([
             'dni'           => $docente->dni,

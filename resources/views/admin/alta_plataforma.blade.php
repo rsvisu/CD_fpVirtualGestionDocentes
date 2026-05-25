@@ -214,27 +214,73 @@ document.addEventListener('alpine:init', () => {
         // ── Google Workspace CSV (29 columnas) ─────────────────────────
         csvLineGoogle(d) {
             const cols = [
-                d.nombre          || '',   //  1 First Name [Required]
-                d.apellido        || '',   //  2 Last Name [Required]
-                d.email_virtual   || '',   //  3 Email Address [Required]
-                'Cambiam3!_',              //  4 Password [Required]
-                '',                        //  5 Password Hash Function [UPLOAD ONLY]
-                '/Profesorado',            //  6 Org Unit Path [Required]
-                '',                        //  7 New Primary Email [UPLOAD ONLY]
-                d.email_personal  || '',   //  8 Recovery Email
-                '', '', '', '', '', '', '', '', //  9-16 vacías
-                d.dni             || '',   // 17 Employee ID
-                '', '', '', '', '', '', '', '', // 18-25 vacías
-                'TRUE',                    // 26 Change Password at Next Sign-In
-                '', '',                    // 27-28 New Status, New Licenses
-                'FALSE',                   // 29 Advanced Protection Program enrollment
+                d.nombre         || '',  //  1 First Name [Required]
+                d.apellido       || '',  //  2 Last Name [Required]
+                d.email_virtual  || '',  //  3 Email Address [Required]
+                'Cambiam3!_',            //  4 Password [Required]
+                '',                      //  5 Password Hash Function [UPLOAD ONLY]
+                '/Profesorado',          //  6 Org Unit Path [Required]
+                '',                      //  7 New Primary Email [UPLOAD ONLY]
+                d.email_personal || '',  //  8 Recovery Email
+                '',                      //  9 Home Secondary Email
+                d.email_personal || '',  // 10 Work Secondary Email
+                '',                      // 11 Recovery Phone
+                '',                      // 12 Work Phone
+                '',                      // 13 Home Phone
+                '',                      // 14 Mobile Phone
+                '',                      // 15 Work Address
+                '',                      // 16 Home Address
+                d.dni            || '',  // 17 Employee ID
+                '',                      // 18 Employee Type
+                '',                      // 19 Employee Title
+                '',                      // 20 Manager Email
+                '',                      // 21 Department
+                '',                      // 22 Cost Center
+                '',                      // 23 Building ID
+                '',                      // 24 Floor Name
+                '',                      // 25 Floor Section
+                'TRUE',                  // 26 Change Password at Next Sign-In
+                'Active',                // 27 New Status [UPLOAD ONLY]
+                '',                      // 28 New Licenses [UPLOAD ONLY]
+                'FALSE',                 // 29 Advanced Protection Program enrollment
             ];
             return cols.join(',');
         },
 
-        // ── Moodle CSV (29 columnas — mismo formato que Google Workspace) ─
+        // ── Moodle CSV (29 columnas — sin Work Secondary Email ni New Status)
         csvLineMoodle(d) {
-            return this.csvLineGoogle(d);
+            const cols = [
+                d.nombre         || '',  //  1 First Name [Required]
+                d.apellido       || '',  //  2 Last Name [Required]
+                d.email_virtual  || '',  //  3 Email Address [Required]
+                'Cambiam3!_',            //  4 Password [Required]
+                '',                      //  5 Password Hash Function [UPLOAD ONLY]
+                '/Profesorado',          //  6 Org Unit Path [Required]
+                '',                      //  7 New Primary Email [UPLOAD ONLY]
+                d.email_personal || '',  //  8 Recovery Email
+                '',                      //  9 Home Secondary Email
+                '',                      // 10 Work Secondary Email
+                '',                      // 11 Recovery Phone
+                '',                      // 12 Work Phone
+                '',                      // 13 Home Phone
+                '',                      // 14 Mobile Phone
+                '',                      // 15 Work Address
+                '',                      // 16 Home Address
+                d.dni            || '',  // 17 Employee ID
+                '',                      // 18 Employee Type
+                '',                      // 19 Employee Title
+                '',                      // 20 Manager Email
+                '',                      // 21 Department
+                '',                      // 22 Cost Center
+                '',                      // 23 Building ID
+                '',                      // 24 Floor Name
+                '',                      // 25 Floor Section
+                'TRUE',                  // 26 Change Password at Next Sign-In
+                '',                      // 27 New Status [UPLOAD ONLY]
+                '',                      // 28 New Licenses [UPLOAD ONLY]
+                'FALSE',                 // 29 Advanced Protection Program enrollment
+            ];
+            return cols.join(',');
         },
 
         // ── Descarga ───────────────────────────────────────────────────

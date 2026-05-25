@@ -236,7 +236,7 @@ test('C3 · google_csv contiene la contraseña y la unidad organizativa correcta
          ->and($cols[5])->toBe('/Profesorado'); // col 6: Org Unit Path
 });
 
-test('C4 · el email_personal aparece en la columna Recovery Email (posición 8)', function () {
+test('C4 · el email_personal aparece en Recovery Email (col 8) y Work Secondary Email (col 10) del google_csv', function () {
     $admin   = adminUser();
     $docente = docenteConEmail();
     $centro  = Centro::forceCreate(['id_centro' => 'CP01', 'nombre' => 'Centro Preview']);
@@ -251,7 +251,9 @@ test('C4 · el email_personal aparece en la columna Recovery Email (posición 8)
 
     $cols = str_getcsv($response->json('google_csv'));
 
-    expect($cols[7])->toBe('personal@example.com'); // col 8 (index 7)
+    expect($cols[7])->toBe('personal@example.com')   // col 8 Recovery Email
+         ->and($cols[9])->toBe('personal@example.com') // col 10 Work Secondary Email
+         ->and($cols[26])->toBe('Active');              // col 27 New Status
 });
 
 test('C5 · moodle_csv tiene exactamente 29 columnas (mismo formato que Google Workspace)', function () {
