@@ -19,7 +19,9 @@
 
 
 
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @if(app()->environment() !== 'testing')
+        @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @endif
     <link rel="stylesheet" href="{{ asset('css/dashboard.css') }}" />
     @stack('styles')
 </head>
@@ -39,5 +41,6 @@
              @yield('content')
         </main>
     </div>
+    @stack('scripts')
 </body>
 </html>
