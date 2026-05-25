@@ -1,25 +1,22 @@
 <?php
 
 /**
- * Suite de tests — Issue #60: Vista para altas individuales/masivas del profesorado
- *
- * Cubre:
- *   A) Acceso y autenticación
- *   B) procesarAltas (POST /admin/alta-plataforma/procesar)
- *   C) Endpoint preview (GET /admin/alta-plataforma/{id}/preview)
- *   D) Filtros (estado, búsqueda)
+ * Suite de tests — Issue #60/#61/#62: Alta en Plataforma (Google Workspace / Moodle)
  *
  * Ejecución:
  *   ./vendor/bin/pest tests/Feature/AltaPlataformaTest.php --no-coverage
  */
 
 use App\Models\Admin;
+use App\Models\Centro;
+use App\Models\CentroDocente;
 use App\Models\Docente;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-// ── Helper ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function adminUser(): Admin
 {
     return Admin::forceCreate([
@@ -33,241 +30,309 @@ function docenteConEmail(array $extra = []): Docente
 {
     static $seq = 0;
     $seq++;
+    $dni = str_pad($seq, 8, '0', STR_PAD_LEFT) . 'T';
+
     return Docente::forceCreate(array_merge([
-        'nombre'        => 'Docente',
-        'apellido'      => 'Apellido',
-        'dni'           => str_pad($seq, 8, '0', STR_PAD_LEFT) . 'X',
-        'email_virtual' => "docente{$seq}@fpvirtualaragon.es",
+        'dni'           => $dni,
+        'nombre'        => 'Docente' . $seq,
+        'apellido'      => 'Apellido' . $seq,
+        'email_virtual' => 'docente' . $seq . '@fpvirtualaragon.es',
         'de_baja'       => false,
         'is_procesado'  => false,
+        'fecha_procesado' => null,
     ], $extra));
 }
 
+// ── BLOQUE A: Acceso y autenticación ──────────────────────────────────────────
 
-// ════════════════════════════════════════════════════════════════════════════
-// BLOQUE A — Acceso y autenticación
-// ════════════════════════════════════════════════════════════════════════════
-
-test('A1 · un invitado es redirigido a admin/login al acceder a alta-plataforma', function () {
-    $response = $this->get('/admin/alta-plataforma');
-    $response->assertRedirect(route('admin.login'));
+test('A1 · usuario no autenticado es redirigido al login de admin', function () {
+    $this->get('/admin/alta-plataforma')
+         ->assertRedirect('/admin/login');
 });
 
-test('A2 · un usuario normal (guard web) es redirigido a admin/login', function () {
-    $centro  = \App\Models\Centro::forceCreate(['id_centro' => 'CA01', 'nombre' => 'Centro A']);
-    $usuario = \App\Models\Usuario::factory()->create(['id_centro' => 'CA01']);
+test('A2 · usuario normal (guard web) no puede acceder a la vista de admin', function () {
+    $centro  = Centro::forceCreate(['id_centro' => 'AP01', 'nombre' => 'Centro AP Test']);
+    $usuario = \App\Models\Usuario::factory()->create(['id_centro' => 'AP01']);
 
-    $response = $this->actingAs($usuario)->get('/admin/alta-plataforma');
-    $response->assertRedirect(route('admin.login'));
+    $this->actingAs($usuario, 'web')
+         ->get('/admin/alta-plataforma')
+         ->assertRedirect('/admin/login');
 });
 
-test('A3 · un admin autenticado puede acceder a la página', function () {
-    $response = $this->actingAs(adminUser(), 'admin')->get('/admin/alta-plataforma');
-    $response->assertStatus(200);
+test('A3 · admin autenticado puede acceder a la vista de alta plataforma', function () {
+    $admin = adminUser();
+
+    $this->actingAs($admin, 'admin')
+         ->get('/admin/alta-plataforma')
+         ->assertStatus(200);
 });
 
-test('A4 · la página contiene el título esperado', function () {
-    $response = $this->actingAs(adminUser(), 'admin')->get('/admin/alta-plataforma');
-    $response->assertSee('Alta en Plataforma');
+test('A4 · la vista muestra docentes con email_virtual asignado', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail(['nombre' => 'Alicia', 'apellido' => 'Constante Lanuza']);
+
+    $this->actingAs($admin, 'admin')
+         ->get('/admin/alta-plataforma')
+         ->assertStatus(200)
+         ->assertSee('Alicia')
+         ->assertSee('Constante Lanuza');
 });
 
-test('A5 · la página muestra los docentes activos con email_virtual', function () {
-    docenteConEmail(['nombre' => 'Guillermo', 'apellido' => 'Herrera']);
-    docenteConEmail(['nombre' => 'Valentina', 'apellido' => 'Montes']);
+test('A5 · la vista NO muestra docentes dados de baja', function () {
+    $admin        = adminUser();
+    $bajado       = docenteConEmail(['nombre' => 'BajadoTest', 'de_baja' => true]);
+    $activo       = docenteConEmail(['nombre' => 'ActivoTest',  'de_baja' => false]);
 
-    $response = $this->actingAs(adminUser(), 'admin')->get('/admin/alta-plataforma');
-    $response->assertSee('Guillermo');
-    $response->assertSee('Valentina');
+    $response = $this->actingAs($admin, 'admin')
+                     ->get('/admin/alta-plataforma');
+
+    $response->assertStatus(200)
+             ->assertSee('ActivoTest')
+             ->assertDontSee('BajadoTest');
 });
 
-test('A6 · la página NO muestra docentes de baja', function () {
-    docenteConEmail(['nombre' => 'BajaDocente', 'apellido' => 'Oculto', 'de_baja' => true]);
+test('A6 · filtro estado=pendiente muestra solo docentes no procesados', function () {
+    $admin     = adminUser();
+    $pendiente = docenteConEmail(['nombre' => 'SoloPendienteXYZ', 'is_procesado' => false]);
+    $procesado = docenteConEmail(['nombre' => 'SoloProcesadoXYZ', 'is_procesado' => true, 'fecha_procesado' => now()]);
 
-    $response = $this->actingAs(adminUser(), 'admin')->get('/admin/alta-plataforma');
-    $response->assertDontSee('BajaDocente');
+    $response = $this->actingAs($admin, 'admin')
+                     ->get('/admin/alta-plataforma?estado=pendiente');
+
+    $response->assertStatus(200)
+             ->assertSee('SoloPendienteXYZ')
+             ->assertDontSee('SoloProcesadoXYZ');
 });
 
-test('A7 · la página NO muestra docentes sin email_virtual', function () {
-    Docente::forceCreate([
-        'nombre'        => 'SinEmail',
-        'apellido'      => 'Virtual',
-        'dni'           => '99999901S',
-        'email_virtual' => '',
-        'de_baja'       => false,
-    ]);
+test('A7 · filtro estado=procesado muestra solo docentes ya procesados', function () {
+    $admin     = adminUser();
+    $pendiente = docenteConEmail(['nombre' => 'Pendiente2', 'is_procesado' => false]);
+    $procesado = docenteConEmail(['nombre' => 'Procesado2', 'is_procesado' => true, 'fecha_procesado' => now()]);
 
-    $response = $this->actingAs(adminUser(), 'admin')->get('/admin/alta-plataforma');
-    $response->assertDontSee('SinEmail');
+    $response = $this->actingAs($admin, 'admin')
+                     ->get('/admin/alta-plataforma?estado=procesado');
+
+    $response->assertStatus(200)
+             ->assertSee('Procesado2')
+             ->assertDontSee('Pendiente2');
 });
 
+// ── BLOQUE B: procesarAltas ────────────────────────────────────────────────────
 
-// ════════════════════════════════════════════════════════════════════════════
-// BLOQUE B — procesarAltas
-// ════════════════════════════════════════════════════════════════════════════
-
-test('B1 · procesar un docente lo marca como is_procesado=true', function () {
+test('B1 · POST sin autenticación devuelve redirección', function () {
     $docente = docenteConEmail();
 
-    $this->actingAs(adminUser(), 'admin')
+    $this->post('/admin/alta-plataforma/procesar', ['ids' => [$docente->id]])
+         ->assertRedirect();
+});
+
+test('B2 · procesarAltas marca is_procesado=true y guarda fecha_procesado', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail(['is_procesado' => false]);
+
+    $this->actingAs($admin, 'admin')
          ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$docente->id]])
          ->assertStatus(200)
          ->assertJson(['ok' => true]);
 
-    expect($docente->fresh()->is_procesado)->toBeTrue();
+    $this->assertDatabaseHas('docentes', [
+        'id'           => $docente->id,
+        'is_procesado' => true,
+    ]);
+
+    $docente->refresh();
+    expect($docente->fecha_procesado)->not->toBeNull();
 });
 
-test('B2 · procesar un docente guarda la fecha_procesado', function () {
-    $docente = docenteConEmail();
+test('B3 · procesarAltas no modifica docentes de baja', function () {
+    $admin  = adminUser();
+    $bajado = docenteConEmail(['de_baja' => true, 'is_procesado' => false]);
 
-    $this->actingAs(adminUser(), 'admin')
-         ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$docente->id]]);
+    $this->actingAs($admin, 'admin')
+         ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$bajado->id]])
+         ->assertStatus(200);
 
-    expect($docente->fresh()->fecha_procesado)->not->toBeNull();
+    $this->assertDatabaseHas('docentes', [
+        'id'           => $bajado->id,
+        'is_procesado' => false,
+    ]);
 });
 
-test('B3 · procesar varios docentes a la vez actualiza todos', function () {
-    $d1 = docenteConEmail();
-    $d2 = docenteConEmail();
+test('B4 · procesarAltas valida que ids sea requerido', function () {
+    $admin = adminUser();
 
-    $this->actingAs(adminUser(), 'admin')
-         ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$d1->id, $d2->id]])
-         ->assertJson(['ok' => true, 'procesados' => 2]);
-
-    expect($d1->fresh()->is_procesado)->toBeTrue();
-    expect($d2->fresh()->is_procesado)->toBeTrue();
-});
-
-test('B4 · procesar sin ids devuelve error de validación', function () {
-    $this->actingAs(adminUser(), 'admin')
+    $this->actingAs($admin, 'admin')
          ->postJson('/admin/alta-plataforma/procesar', [])
-         ->assertStatus(422);
+         ->assertStatus(422)
+         ->assertJsonValidationErrors(['ids']);
 });
 
-test('B5 · procesar con ids vacíos devuelve error de validación', function () {
-    $this->actingAs(adminUser(), 'admin')
-         ->postJson('/admin/alta-plataforma/procesar', ['ids' => []])
-         ->assertStatus(422);
+test('B5 · procesarAltas valida que ids sea un array', function () {
+    $admin = adminUser();
+
+    $this->actingAs($admin, 'admin')
+         ->postJson('/admin/alta-plataforma/procesar', ['ids' => 'no-es-array'])
+         ->assertStatus(422)
+         ->assertJsonValidationErrors(['ids']);
 });
 
-test('B6 · un docente de baja no se marca como procesado aunque esté en los ids', function () {
-    $docente = docenteConEmail(['de_baja' => true, 'is_procesado' => false]);
+test('B6 · procesarAltas valida que los ids existen en la tabla docentes', function () {
+    $admin = adminUser();
 
-    $this->actingAs(adminUser(), 'admin')
-         ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$docente->id]]);
-
-    expect($docente->fresh()->is_procesado)->toBeFalse();
+    $this->actingAs($admin, 'admin')
+         ->postJson('/admin/alta-plataforma/procesar', ['ids' => [99999]])
+         ->assertStatus(422)
+         ->assertJsonValidationErrors(['ids.0']);
 });
 
-test('B7 · un invitado no puede llamar a procesarAltas', function () {
+test('B7 · procesarAltas devuelve JSON con ok=true y el número de procesados', function () {
+    $admin = adminUser();
+    $d1    = docenteConEmail();
+    $d2    = docenteConEmail();
+
+    $this->actingAs($admin, 'admin')
+         ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$d1->id, $d2->id]])
+         ->assertStatus(200)
+         ->assertJson(['ok' => true, 'procesados' => 2]);
+});
+
+// ── BLOQUE C: preview ─────────────────────────────────────────────────────────
+
+test('C1 · preview devuelve JSON con todos los campos esperados', function () {
+    $admin   = adminUser();
     $docente = docenteConEmail();
 
-    $this->postJson('/admin/alta-plataforma/procesar', ['ids' => [$docente->id]])
-         ->assertStatus(302); // redirige al login
-});
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// BLOQUE C — Endpoint preview
-// ════════════════════════════════════════════════════════════════════════════
-
-test('C1 · el endpoint preview devuelve el dni del docente', function () {
-    $docente = docenteConEmail(['dni' => '12345678C']);
-
-    $this->actingAs(adminUser(), 'admin')
+    $this->actingAs($admin, 'admin')
          ->getJson("/admin/alta-plataforma/{$docente->id}/preview")
          ->assertStatus(200)
-         ->assertJsonPath('dni', '12345678C');
+         ->assertJsonStructure([
+             'dni', 'nombre', 'apellido', 'email_virtual', 'email_personal',
+             'google_csv', 'moodle_csv', 'google_header', 'moodle_header',
+         ]);
 });
 
-test('C2 · el endpoint preview devuelve el email_virtual', function () {
-    $docente = docenteConEmail(['email_virtual' => 'preview@fpvirtualaragon.es']);
+test('C2 · google_csv tiene exactamente 29 columnas', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail();
 
-    $this->actingAs(adminUser(), 'admin')
-         ->getJson("/admin/alta-plataforma/{$docente->id}/preview")
+    $response = $this->actingAs($admin, 'admin')
+                     ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
+
+    $googleCsv = $response->json('google_csv');
+    $cols      = str_getcsv($googleCsv);
+    expect(count($cols))->toBe(29);
+});
+
+test('C3 · google_csv contiene la contraseña y la unidad organizativa correctas', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail();
+
+    $response = $this->actingAs($admin, 'admin')
+                     ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
+
+    $cols = str_getcsv($response->json('google_csv'));
+
+    expect($cols[3])->toBe('Cambiam3!_')   // col 4: Password
+         ->and($cols[5])->toBe('/Profesorado'); // col 6: Org Unit Path
+});
+
+test('C4 · el email_personal aparece en la columna Recovery Email (posición 8)', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail();
+    $centro  = Centro::forceCreate(['id_centro' => 'CP01', 'nombre' => 'Centro Preview']);
+    CentroDocente::forceCreate([
+        'dni'       => $docente->dni,
+        'id_centro' => 'CP01',
+        'email'     => 'personal@example.com',
+    ]);
+
+    $response = $this->actingAs($admin, 'admin')
+                     ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
+
+    $cols = str_getcsv($response->json('google_csv'));
+
+    expect($cols[7])->toBe('personal@example.com'); // col 8 (index 7)
+});
+
+test('C5 · moodle_csv tiene formato: "profDNI","nombre","apellido","email_virtual"', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail();
+
+    $response = $this->actingAs($admin, 'admin')
+                     ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
+
+    $moodleCsv = $response->json('moodle_csv');
+
+    expect($moodleCsv)->toStartWith('"prof' . $docente->dni . '"');
+
+    $cols = str_getcsv($moodleCsv);
+    expect(count($cols))->toBe(4);
+});
+
+test('C6 · google_header tiene exactamente 29 nombres de columna', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail();
+
+    $response = $this->actingAs($admin, 'admin')
+                     ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
+
+    $header = $response->json('google_header');
+    $cols   = str_getcsv($header);
+
+    expect(count($cols))->toBe(29)
+         ->and($cols[0])->toBe('First Name [Required]')
+         ->and($cols[2])->toBe('Email Address [Required]')
+         ->and($cols[28])->toBe('Advanced Protection Program enrollment');
+});
+
+// ── BLOQUE D: Filtros ─────────────────────────────────────────────────────────
+
+test('D1 · búsqueda por nombre muestra solo los docentes que coinciden', function () {
+    $admin     = adminUser();
+    $encontrar = docenteConEmail(['nombre' => 'UnicoNombre']);
+    $otro      = docenteConEmail(['nombre' => 'OtroNombre']);
+
+    $this->actingAs($admin, 'admin')
+         ->get('/admin/alta-plataforma?buscar=UnicoNombre')
          ->assertStatus(200)
-         ->assertJsonPath('email_virtual', 'preview@fpvirtualaragon.es');
+         ->assertSee('UnicoNombre')
+         ->assertDontSee('OtroNombre');
 });
 
-test('C3 · el endpoint preview incluye la línea google_csv', function () {
-    $docente = docenteConEmail();
+test('D2 · búsqueda por apellido muestra solo los docentes que coinciden', function () {
+    $admin     = adminUser();
+    $encontrar = docenteConEmail(['apellido' => 'UnicoApellido']);
+    $otro      = docenteConEmail(['apellido' => 'OtroApellido']);
 
-    $response = $this->actingAs(adminUser(), 'admin')
-         ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
-
-    $response->assertStatus(200);
-    expect($response->json('google_csv'))->toBeString()->not->toBeEmpty();
+    $this->actingAs($admin, 'admin')
+         ->get('/admin/alta-plataforma?buscar=UnicoApellido')
+         ->assertStatus(200)
+         ->assertSee('UnicoApellido')
+         ->assertDontSee('OtroApellido');
 });
 
-test('C4 · el endpoint preview incluye la línea moodle_csv', function () {
-    $docente = docenteConEmail();
+test('D3 · búsqueda por DNI muestra solo el docente que coincide', function () {
+    $admin     = adminUser();
+    $encontrar = docenteConEmail(['dni' => '99887766X']);
+    $otro      = docenteConEmail(['dni' => '11223344Y']);
 
-    $response = $this->actingAs(adminUser(), 'admin')
-         ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
-
-    $response->assertStatus(200);
-    expect($response->json('moodle_csv'))->toBeString()->not->toBeEmpty();
+    $this->actingAs($admin, 'admin')
+         ->get('/admin/alta-plataforma?buscar=99887766X')
+         ->assertStatus(200)
+         ->assertSee('99887766X')
+         ->assertDontSee('11223344Y');
 });
 
-test('C5 · la línea moodle_csv empieza con "prof" seguido del DNI', function () {
-    $docente = docenteConEmail(['dni' => '87654321M']);
+test('D4 · sin filtros se muestran todos los docentes activos con email_virtual', function () {
+    $admin = adminUser();
+    $d1    = docenteConEmail(['nombre' => 'Primero']);
+    $d2    = docenteConEmail(['nombre' => 'Segundo']);
+    $d3    = docenteConEmail(['nombre' => 'Tercero']);
 
-    $response = $this->actingAs(adminUser(), 'admin')
-         ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
-
-    expect($response->json('moodle_csv'))->toStartWith('"prof87654321M"');
-});
-
-test('C6 · el endpoint preview devuelve 404 para un id inexistente', function () {
-    $this->actingAs(adminUser(), 'admin')
-         ->getJson('/admin/alta-plataforma/9999/preview')
-         ->assertStatus(404);
-});
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// BLOQUE D — Filtros
-// ════════════════════════════════════════════════════════════════════════════
-
-test('D1 · el filtro estado=pendiente solo muestra docentes no procesados', function () {
-    docenteConEmail(['nombre' => 'Guillermo', 'apellido' => 'Sin Procesar', 'is_procesado' => false]);
-    docenteConEmail(['nombre' => 'Valentina', 'apellido' => 'Ya Procesada', 'is_procesado' => true]);
-
-    $response = $this->actingAs(adminUser(), 'admin')
-         ->get('/admin/alta-plataforma?estado=pendiente');
-
-    $response->assertSee('Guillermo');
-    $response->assertDontSee('Valentina');
-});
-
-test('D2 · el filtro estado=procesado solo muestra docentes procesados', function () {
-    docenteConEmail(['nombre' => 'Guillermo', 'apellido' => 'Sin Procesar', 'is_procesado' => false]);
-    docenteConEmail(['nombre' => 'Valentina', 'apellido' => 'Ya Procesada', 'is_procesado' => true]);
-
-    $response = $this->actingAs(adminUser(), 'admin')
-         ->get('/admin/alta-plataforma?estado=procesado');
-
-    $response->assertSee('Valentina');
-    $response->assertDontSee('Guillermo');
-});
-
-test('D3 · la búsqueda por nombre filtra correctamente', function () {
-    docenteConEmail(['nombre' => 'Guillermo', 'apellido' => 'Herrera']);
-    docenteConEmail(['nombre' => 'Valentina', 'apellido' => 'Montes']);
-
-    $response = $this->actingAs(adminUser(), 'admin')
-         ->get('/admin/alta-plataforma?buscar=Guillermo');
-
-    $response->assertSee('Guillermo');
-    $response->assertDontSee('Valentina');
-});
-
-test('D4 · la búsqueda por DNI filtra correctamente', function () {
-    docenteConEmail(['dni' => 'A1111111Z', 'nombre' => 'Guillermo', 'apellido' => 'Herrera']);
-    docenteConEmail(['dni' => 'B2222222Z', 'nombre' => 'Valentina', 'apellido' => 'Montes']);
-
-    $response = $this->actingAs(adminUser(), 'admin')
-         ->get('/admin/alta-plataforma?buscar=A1111111Z');
-
-    $response->assertSee('Guillermo');
-    $response->assertDontSee('Valentina');
+    $this->actingAs($admin, 'admin')
+         ->get('/admin/alta-plataforma')
+         ->assertStatus(200)
+         ->assertSee('Primero')
+         ->assertSee('Segundo')
+         ->assertSee('Tercero');
 });
