@@ -18,12 +18,12 @@
     .btn-success   { background:#16a34a; color:#fff; border:none; border-radius:8px; padding:.5rem 1.2rem; cursor:pointer; font-size:.9rem; font-weight:600; transition:background .2s; }
     .btn-success:hover   { background:#15803d; }
     .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:40; display:flex; align-items:center; justify-content:center; }
-    .modal-box     { background:#fff; border-radius:12px; padding:2rem; max-width:560px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,.18); }
+    .modal-box     { background:#fff; border-radius:12px; padding:2rem; max-width:620px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,.18); }
     .modal-title   { font-size:1.1rem; font-weight:700; color:#1e3a5f; margin-bottom:1rem; }
-    .csv-preview   { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:.75rem 1rem; font-family:monospace; font-size:.8rem; word-break:break-all; color:#334155; margin-bottom:.5rem; }
+    .csv-preview   { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:.75rem 1rem; font-family:monospace; font-size:.75rem; word-break:break-all; color:#334155; margin-bottom:.5rem; }
     .divider       { border:none; border-top:1px solid #e2e8f0; margin:1.25rem 0; }
-    .tick-ok       { color:#16a34a; font-size:.9rem; font-weight:600; }
-    .tick-no       { color:#dc2626; font-size:.9rem; font-weight:600; }
+    .tick-ok       { color:#16a34a; font-size:.88rem; font-weight:600; }
+    .tick-no       { color:#dc2626; font-size:.88rem; font-weight:600; }
 </style>
 @endpush
 
@@ -65,17 +65,12 @@
                 @forelse($docentes as $docente)
                 <tr>
                     <td>
-                        <input type="checkbox"
-                               value="{{ $docente->id }}"
-                               x-model="selected"
-                               @change="syncCheckAll">
+                        <input type="checkbox" value="{{ $docente->id }}" x-model="selected" @change="syncCheckAll">
                     </td>
                     <td class="font-mono text-xs">{{ $docente->dni }}</td>
                     <td>{{ $docente->nombre }}</td>
                     <td>{{ $docente->apellido }}</td>
                     <td class="text-indigo-700 font-medium text-xs">{{ $docente->email_virtual }}</td>
-
-                    {{-- Estado: reactivo vía Alpine --}}
                     <td>
                         <span x-show="getEstado({{ $docente->id }})" class="tick-ok">
                             <i class="fas fa-check-circle"></i> Exportado
@@ -84,12 +79,7 @@
                             <i class="fas fa-times-circle"></i> Pendiente
                         </span>
                     </td>
-
-                    {{-- Fecha: reactiva vía Alpine --}}
-                    <td class="text-xs text-gray-500"
-                        x-text="getFecha({{ $docente->id }})">
-                    </td>
-
+                    <td class="text-xs text-gray-500" x-text="getFecha({{ $docente->id }})"></td>
                     <td>
                         <button class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold"
                                 @click="verDetalle({{ $docente->id }})">
@@ -106,10 +96,7 @@
         </table>
     </div>
 
-    {{-- Paginación --}}
-    <div class="mt-4">
-        {{ $docentes->links() }}
-    </div>
+    <div class="mt-4">{{ $docentes->links() }}</div>
 
     {{-- Botón generar CSVs --}}
     <div class="mt-6 flex items-center gap-4">
@@ -124,7 +111,7 @@
 
     {{-- Modal: previsualización CSV de un docente --}}
     <div class="modal-overlay" x-show="showPreview" x-cloak @click.self="showPreview = false">
-        <div class="modal-box">
+        <div class="modal-box" style="max-width:680px;">
             <h4 class="modal-title"><i class="fas fa-eye mr-2 text-indigo-500"></i>Previsualización CSV</h4>
             <template x-if="previewDocente">
                 <div>
@@ -132,9 +119,9 @@
                         <strong x-text="previewDocente.nombre + ' ' + previewDocente.apellido"></strong>
                         &nbsp;|&nbsp; <span class="font-mono text-xs" x-text="previewDocente.dni"></span>
                     </p>
-                    <p class="text-xs font-semibold text-gray-500 mb-1">Google Workspace CSV:</p>
+                    <p class="text-xs font-semibold text-gray-500 mb-1">Google Workspace:</p>
                     <div class="csv-preview" x-text="csvLineGoogle(previewDocente)"></div>
-                    <p class="text-xs font-semibold text-gray-500 mb-1 mt-3">Moodle CSV:</p>
+                    <p class="text-xs font-semibold text-gray-500 mb-1 mt-3">Moodle:</p>
                     <div class="csv-preview" x-text="csvLineMoodle(previewDocente)"></div>
                 </div>
             </template>
@@ -150,14 +137,12 @@
             <h4 class="modal-title">
                 <i class="fas fa-file-download mr-2 text-indigo-500"></i>Exportar CSVs
             </h4>
-
             <p class="text-sm text-gray-600 mb-4">
                 Descarga los ficheros para
                 <strong x-text="selectedDocentes().length"></strong>
                 docente(s) seleccionado(s) y, cuando estés listo/a, cierra actualizando el estado.
             </p>
 
-            {{-- Botones de descarga --}}
             <div class="flex flex-wrap gap-3 mb-2">
                 <button class="btn-primary" @click="downloadCSV('google')">
                     <i class="fab fa-google mr-1"></i>Descargar CSV Google Workspace
@@ -169,7 +154,6 @@
 
             <hr class="divider">
 
-            {{-- Botones de cierre --}}
             <div class="flex flex-wrap justify-between items-center gap-3">
                 <button class="btn-secondary" @click="cerrarSinActualizar()">
                     <i class="fas fa-times mr-1"></i>Cerrar sin actualizar estado
@@ -178,12 +162,8 @@
                         :disabled="procesando"
                         :class="{ 'opacity-60 cursor-not-allowed': procesando }"
                         @click="cerrarActualizando()">
-                    <span x-show="!procesando">
-                        <i class="fas fa-check-circle mr-1"></i>Cerrar y actualizar estado
-                    </span>
-                    <span x-show="procesando">
-                        <i class="fas fa-spinner fa-spin mr-1"></i>Actualizando…
-                    </span>
+                    <span x-show="!procesando"><i class="fas fa-check-circle mr-1"></i>Cerrar y actualizar estado</span>
+                    <span x-show="procesando"><i class="fas fa-spinner fa-spin mr-1"></i>Actualizando…</span>
                 </button>
             </div>
         </div>
@@ -201,64 +181,81 @@ document.addEventListener('alpine:init', () => {
         procesando: false,
         docenteMap: @json($docentesJson),
 
-        // ── Helpers de estado reactivo ─────────────────────────────────
+        // ── Estado reactivo ────────────────────────────────────────────
         getEstado(id) {
             return this.docenteMap.find(d => d.id === id)?.is_procesado ?? false;
         },
-
         getFecha(id) {
             return this.docenteMap.find(d => d.id === id)?.fecha_procesado ?? '—';
         },
 
         // ── Selección ──────────────────────────────────────────────────
         toggleAll(event) {
-            if (event.target.checked) {
-                this.selected = this.docenteMap.map(d => d.id);
-            } else {
-                this.selected = [];
-            }
+            this.selected = event.target.checked ? this.docenteMap.map(d => d.id) : [];
         },
-
         syncCheckAll() {
             const allIds = this.docenteMap.map(d => d.id);
             this.$refs.checkAll.checked = allIds.length > 0 && allIds.every(id => this.selected.includes(id));
             this.$refs.checkAll.indeterminate = this.selected.length > 0 && !this.$refs.checkAll.checked;
         },
-
         selectedDocentes() {
             return this.docenteMap.filter(d => this.selected.includes(d.id));
         },
 
-        // ── Detalle / preview ──────────────────────────────────────────
         verDetalle(id) {
             this.previewDocente = this.docenteMap.find(d => d.id === id) ?? null;
             this.showPreview = true;
         },
-
         abrirExport() {
             if (this.selected.length === 0) return;
             this.showExport = true;
         },
 
-        // ── Generación CSV ─────────────────────────────────────────────
+        // ── Google Workspace CSV (29 columnas) ─────────────────────────
         csvLineGoogle(d) {
-            const nombre = (d.nombre + ' ' + d.apellido).replace(/"/g, '""');
-            return `"${nombre}","${d.email_virtual}",,`;
+            const cols = [
+                d.nombre          || '',   //  1 First Name [Required]
+                d.apellido        || '',   //  2 Last Name [Required]
+                d.email_virtual   || '',   //  3 Email Address [Required]
+                'Cambiam3!_',              //  4 Password [Required]
+                '',                        //  5 Password Hash Function [UPLOAD ONLY]
+                '/Profesorado',            //  6 Org Unit Path [Required]
+                '',                        //  7 New Primary Email [UPLOAD ONLY]
+                d.email_personal  || '',   //  8 Recovery Email
+                '', '', '', '', '', '', '', '', //  9-16 vacías
+                d.dni             || '',   // 17 Employee ID
+                '', '', '', '', '', '', '', '', // 18-25 vacías
+                'TRUE',                    // 26 Change Password at Next Sign-In
+                '', '',                    // 27-28 New Status, New Licenses
+                'FALSE',                   // 29 Advanced Protection Program enrollment
+            ];
+            return cols.join(',');
         },
 
+        // ── Moodle CSV (4 columnas) ────────────────────────────────────
         csvLineMoodle(d) {
-            const user    = 'prof' + d.dni;
-            const nombre  = (d.nombre  || '').replace(/"/g, '""');
+            const user     = 'prof' + (d.dni || '');
+            const nombre   = (d.nombre   || '').replace(/"/g, '""');
             const apellido = (d.apellido || '').replace(/"/g, '""');
-            return `"${user}","${nombre}","${apellido}","${d.email_virtual}"`;
+            return `"${user}","${nombre}","${apellido}","${d.email_virtual || ''}"`;
         },
 
+        // ── Descarga ───────────────────────────────────────────────────
         downloadCSV(tipo) {
-            const docs = this.selectedDocentes();
-            let lines  = [];
+            const docs  = this.selectedDocentes();
+            let   lines = [];
 
             if (tipo === 'google') {
-                lines.push('Nombre,Correo,Contraseña,Unidad organizativa');
+                lines.push(
+                    'First Name [Required],Last Name [Required],Email Address [Required],' +
+                    'Password [Required],Password Hash Function [UPLOAD ONLY],Org Unit Path [Required],' +
+                    'New Primary Email [UPLOAD ONLY],Recovery Email,Home Secondary Email,Work Secondary Email,' +
+                    'Recovery Phone [MUST BE IN THE E.164 FORMAT],Work Phone,Home Phone,Mobile Phone,' +
+                    'Work Address,Home Address,Employee ID,Employee Type,Employee Title,Manager Email,' +
+                    'Department,Cost Center,Building ID,Floor Name,Floor Section,' +
+                    'Change Password at Next Sign-In,New Status [UPLOAD ONLY],New Licenses [UPLOAD ONLY],' +
+                    'Advanced Protection Program enrollment'
+                );
                 docs.forEach(d => lines.push(this.csvLineGoogle(d)));
             } else {
                 lines.push('username,firstname,lastname,email');
@@ -275,7 +272,7 @@ document.addEventListener('alpine:init', () => {
             URL.revokeObjectURL(url);
         },
 
-        // ── Botones de cierre del modal ────────────────────────────────
+        // ── Cierre del modal ───────────────────────────────────────────
         cerrarSinActualizar() {
             this.showExport = false;
         },
@@ -283,44 +280,30 @@ document.addEventListener('alpine:init', () => {
         cerrarActualizando() {
             if (this.procesando) return;
             this.procesando = true;
-
-            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
-            const idsAmarcar = [...this.selected];
+            const token       = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
+            const idsAmarcar  = [...this.selected];
 
             fetch('{{ route("admin.alta-plataforma.procesar") }}', {
                 method:  'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': token,
-                    'Accept':       'application/json',
-                },
-                body: JSON.stringify({ ids: idsAmarcar }),
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token, 'Accept': 'application/json' },
+                body:    JSON.stringify({ ids: idsAmarcar }),
             })
             .then(r => r.ok ? r.json() : Promise.reject(r))
             .then(() => {
-                // Actualizar estado en el docenteMap local (sin recargar página)
                 const ahora = new Date().toLocaleString('es-ES', {
                     day: '2-digit', month: '2-digit', year: 'numeric',
                     hour: '2-digit', minute: '2-digit',
                 });
                 idsAmarcar.forEach(id => {
                     const d = this.docenteMap.find(d => d.id === id);
-                    if (d) {
-                        d.is_procesado   = true;
-                        d.fecha_procesado = ahora;
-                    }
+                    if (d) { d.is_procesado = true; d.fecha_procesado = ahora; }
                 });
-
                 this.showExport = false;
                 this.selected   = [];
                 if (this.$refs.checkAll) this.$refs.checkAll.checked = false;
             })
-            .catch(() => {
-                alert('Error al actualizar el estado. Inténtalo de nuevo.');
-            })
-            .finally(() => {
-                this.procesando = false;
-            });
+            .catch(() => alert('Error al actualizar el estado. Inténtalo de nuevo.'))
+            .finally(() => { this.procesando = false; });
         },
     }));
 });
