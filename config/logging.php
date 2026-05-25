@@ -3,6 +3,7 @@
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
+use Monolog\Handler\NativeMailerHandler;
 use Monolog\Processor\PsrLogMessageProcessor;
 
 return [
@@ -125,6 +126,51 @@ return [
 
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
+        ],
+
+        /*
+        |----------------------------------------------------------------------
+        | Canal: bajas_docentes
+        |----------------------------------------------------------------------
+        | Registra exclusivamente las bajas de docentes en un fichero dedicado.
+        | Uso: Log::channel('bajas_docentes')->info(...)
+        */
+        'bajas_docentes' => [
+            'driver' => 'single',
+            'path'   => storage_path('logs/docentes_baja.log'),
+            'level'  => 'info',
+            'replace_placeholders' => true,
+        ],
+
+        /*
+        |----------------------------------------------------------------------
+        | Canal: critical_mail
+        |----------------------------------------------------------------------
+        | Envía por correo electrónico todos los eventos de nivel critical o
+        | superior. Requiere que MAIL_* esté correctamente configurado en .env.
+        */
+        'critical_mail' => [
+            'driver'  => 'monolog',
+            'level'   => 'critical',
+            'handler' => NativeMailerHandler::class,
+            'handler_with' => [
+                'to'      => env('LOG_ALERT_TO', env('MAIL_FROM_ADDRESS', 'admin@example.com')),
+                'subject' => '[' . env('APP_NAME', 'Laravel') . '] ALERTA CRÍTICA',
+                'from'    => env('MAIL_FROM_ADDRESS', 'no-reply@example.com'),
+            ],
+        ],
+
+        /*
+        |----------------------------------------------------------------------
+        | Stack: alertas
+        |----------------------------------------------------------------------
+        | Stack que agrupa el canal single estándar más el canal de email para
+        | errores críticos. Actívalo con LOG_STACK=single,critical_mail en .env.
+        */
+        'alertas' => [
+            'driver'   => 'stack',
+            'channels' => ['single', 'critical_mail'],
+            'ignore_exceptions' => false,
         ],
 
     ],
