@@ -28,9 +28,16 @@ class AltaPlataformaController extends Controller
         . 'Advanced Protection Program enrollment';
 
     /**
-     * Cabecera del CSV de Moodle.
+     * Cabecera del CSV de Moodle (mismo formato de 29 columnas que Google Workspace).
      */
-    private const MOODLE_HEADER = 'username,firstname,lastname,email';
+    private const MOODLE_HEADER = 'First Name [Required],Last Name [Required],Email Address [Required],'
+        . 'Password [Required],Password Hash Function [UPLOAD ONLY],Org Unit Path [Required],'
+        . 'New Primary Email [UPLOAD ONLY],Recovery Email,Home Secondary Email,Work Secondary Email,'
+        . 'Recovery Phone [MUST BE IN THE E.164 FORMAT],Work Phone,Home Phone,Mobile Phone,'
+        . 'Work Address,Home Address,Employee ID,Employee Type,Employee Title,Manager Email,'
+        . 'Department,Cost Center,Building ID,Floor Name,Floor Section,'
+        . 'Change Password at Next Sign-In,New Status [UPLOAD ONLY],New Licenses [UPLOAD ONLY],'
+        . 'Advanced Protection Program enrollment';
 
     // ── index ─────────────────────────────────────────────────────────────────
 
@@ -112,13 +119,8 @@ class AltaPlataformaController extends Controller
             'FALSE',                    // 29 Advanced Protection Program enrollment
         ];
 
-        // 4 columnas Moodle
-        $moodleCols = [
-            '"prof' . $docente->dni . '"',
-            '"' . $docente->nombre . '"',
-            '"' . $docente->apellido . '"',
-            '"' . $docente->email_virtual . '"',
-        ];
+        // Moodle: mismo formato de 29 columnas que Google Workspace
+        $moodleCols = $googleCols;
 
         return response()->json([
             'dni'           => $docente->dni,

@@ -232,12 +232,9 @@ document.addEventListener('alpine:init', () => {
             return cols.join(',');
         },
 
-        // ── Moodle CSV (4 columnas) ────────────────────────────────────
+        // ── Moodle CSV (29 columnas — mismo formato que Google Workspace) ─
         csvLineMoodle(d) {
-            const user     = 'prof' + (d.dni || '');
-            const nombre   = (d.nombre   || '').replace(/"/g, '""');
-            const apellido = (d.apellido || '').replace(/"/g, '""');
-            return `"${user}","${nombre}","${apellido}","${d.email_virtual || ''}"`;
+            return this.csvLineGoogle(d);
         },
 
         // ── Descarga ───────────────────────────────────────────────────

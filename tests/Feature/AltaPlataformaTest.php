@@ -254,7 +254,7 @@ test('C4 · el email_personal aparece en la columna Recovery Email (posición 8)
     expect($cols[7])->toBe('personal@example.com'); // col 8 (index 7)
 });
 
-test('C5 · moodle_csv tiene formato: "profDNI","nombre","apellido","email_virtual"', function () {
+test('C5 · moodle_csv tiene exactamente 29 columnas (mismo formato que Google Workspace)', function () {
     $admin   = adminUser();
     $docente = docenteConEmail();
 
@@ -262,11 +262,24 @@ test('C5 · moodle_csv tiene formato: "profDNI","nombre","apellido","email_virtu
                      ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
 
     $moodleCsv = $response->json('moodle_csv');
+    $cols      = str_getcsv($moodleCsv);
 
-    expect($moodleCsv)->toStartWith('"prof' . $docente->dni . '"');
+    expect(count($cols))->toBe(29);
+});
 
-    $cols = str_getcsv($moodleCsv);
-    expect(count($cols))->toBe(4);
+test('C7 · moodle_header tiene exactamente 29 nombres de columna', function () {
+    $admin   = adminUser();
+    $docente = docenteConEmail();
+
+    $response = $this->actingAs($admin, 'admin')
+                     ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
+
+    $header = $response->json('moodle_header');
+    $cols   = str_getcsv($header);
+
+    expect(count($cols))->toBe(29)
+         ->and($cols[0])->toBe('First Name [Required]')
+         ->and($cols[28])->toBe('Advanced Protection Program enrollment');
 });
 
 test('C6 · google_header tiene exactamente 29 nombres de columna', function () {
