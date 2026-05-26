@@ -88,8 +88,11 @@ Route::middleware(['auth'])->group(function () {
 
 // Admin
 Route::middleware('web')->prefix('admin')->name('admin.')->group(function () {
-    // Ruta /admin que muestra login si no está logueado, o redirige al dashboard si está autenticado
+    // Ruta /admin que redirige al dashboard si está autenticado como admin, o al login
     Route::get('/', function () {
+        if (auth()->check() && \App\Models\Admin::where('email', auth()->user()->email)->exists()) {
+            return redirect()->route('admin.dashboard');
+        }
         if (auth('admin')->check()) {
             return redirect()->route('admin.dashboard');
         }
@@ -101,8 +104,8 @@ Route::middleware('web')->prefix('admin')->name('admin.')->group(function () {
     Route::post('login', [AdminLoginController::class, 'login'])->name('login.submit');
     Route::post('logout', [AdminLoginController::class, 'logout'])->name('logout');
 
-    // Rutas protegidas para admin
-    Route::middleware('auth:admin')->group(function () {
+    // Rutas protegidas para admin (accesibles con login web si el usuario es admin)
+    Route::middleware(['auth', 'es_admin'])->group(function () {
         Route::get('dashboard', function () {
             return view('admin.dashboard');
         })->name('dashboard');
@@ -122,7 +125,6 @@ Route::middleware('web')->prefix('admin')->name('admin.')->group(function () {
         Route::get('alta-plataforma/{id}/preview', [AltaPlataformaController::class, 'preview']);
         Route::post('alta-plataforma/procesar', [AltaPlataformaController::class, 'procesarAltas'])
             ->name('alta-plataforma.procesar');
-
     });
 });
 
