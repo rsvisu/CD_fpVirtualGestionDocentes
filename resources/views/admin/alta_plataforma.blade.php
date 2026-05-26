@@ -191,15 +191,16 @@ document.addEventListener('alpine:init', () => {
 
         // ── Selección ──────────────────────────────────────────────────
         toggleAll(event) {
-            this.selected = event.target.checked ? this.docenteMap.map(d => d.id) : [];
+            this.selected = event.target.checked ? this.docenteMap.map(d => String(d.id)) : [];
         },
         syncCheckAll() {
-            const allIds = this.docenteMap.map(d => d.id);
+            const allIds = this.docenteMap.map(d => String(d.id));
             this.$refs.checkAll.checked = allIds.length > 0 && allIds.every(id => this.selected.includes(id));
             this.$refs.checkAll.indeterminate = this.selected.length > 0 && !this.$refs.checkAll.checked;
         },
         selectedDocentes() {
-            return this.docenteMap.filter(d => this.selected.includes(d.id));
+            const nums = this.selected.map(Number);
+            return this.docenteMap.filter(d => nums.includes(d.id));
         },
 
         verDetalle(id) {

@@ -8,7 +8,7 @@
                 <div class="panel-header">
                     <h3 class="alta-title">Panel de Administración</h3>
                     <p class="alta-subtitle">
-                        Bienvenido {{ Auth::guard('admin')->user()->user }} aquí podrás gestionar la administración.
+                        Bienvenido {{ optional(Auth::guard('admin')->user())->user ?? optional(auth()->user())->nombre ?? 'Admin' }} aquí podrás gestionar la administración.
                     </p>
                 </div>
 
