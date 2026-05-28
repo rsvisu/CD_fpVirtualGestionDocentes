@@ -144,6 +144,21 @@ return [
 
         /*
         |----------------------------------------------------------------------
+        | Canal: moodle_api
+        |----------------------------------------------------------------------
+        | Registra las llamadas a la API REST de Moodle (Web Services) para
+        | el alta automática de docentes. Nunca debe registrar el wstoken.
+        | Uso: Log::channel('moodle_api')->info(...)
+        */
+        'moodle_api' => [
+            'driver' => 'single',
+            'path'   => storage_path('logs/moodle_api.log'),
+            'level'  => 'info',
+            'replace_placeholders' => true,
+        ],
+
+        /*
+        |----------------------------------------------------------------------
         | Canal: critical_mail
         |----------------------------------------------------------------------
         | Envía por correo electrónico todos los eventos de nivel critical o

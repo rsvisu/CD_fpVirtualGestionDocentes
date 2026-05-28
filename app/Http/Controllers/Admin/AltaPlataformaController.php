@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Docente;
+use App\Services\MoodleApiService;
 use Illuminate\Http\Request;
 
 class AltaPlataformaController extends Controller
@@ -33,8 +34,8 @@ class AltaPlataformaController extends Controller
             $buscar = $request->buscar;
             $query->where(function ($q) use ($buscar) {
                 $q->where('nombre', 'like', "%{$buscar}%")
-                  ->orWhere('apellido', 'like', "%{$buscar}%")
-                  ->orWhere('dni', 'like', "%{$buscar}%");
+                    ->orWhere('apellido', 'like', "%{$buscar}%")
+                    ->orWhere('dni', 'like', "%{$buscar}%");
             });
         }
 
@@ -44,12 +45,12 @@ class AltaPlataformaController extends Controller
         // Use clone() so paginate()'s LIMIT/OFFSET don't bleed into this query
         $docentesJson = $query->clone()->orderBy('apellido')->orderBy('nombre')->get()->map(function ($d) {
             return [
-                'id'            => $d->id,
-                'dni'           => $d->dni,
-                'nombre'        => $d->nombre,
-                'apellido'      => $d->apellido,
+                'id' => $d->id,
+                'dni' => $d->dni,
+                'nombre' => $d->nombre,
+                'apellido' => $d->apellido,
                 'email_virtual' => $d->email_virtual,
-                'is_procesado'  => $d->is_procesado,
+                'is_procesado' => $d->is_procesado,
                 'fecha_procesado' => $d->fecha_procesado?->format('d/m/Y H:i'),
             ];
         });
@@ -67,42 +68,66 @@ class AltaPlataformaController extends Controller
         $local = explode('@', $docente->email_virtual)[0] ?? $docente->email_virtual;
 
         return response()->json([
-            'dni'           => $docente->dni,
-            'nombre'        => $docente->nombre,
-            'apellido'      => $docente->apellido,
+            'dni' => $docente->dni,
+            'nombre' => $docente->nombre,
+            'apellido' => $docente->apellido,
             'email_virtual' => $docente->email_virtual,
-            'google_csv'    => implode(',', [
-                $docente->nombre . ' ' . $docente->apellido,
+            'google_csv' => implode(',', [
+                $docente->nombre.' '.$docente->apellido,
                 $docente->email_virtual,
                 '',  // Password (vacío — se generará)
                 '',  // Org unit
             ]),
-            'moodle_csv'    => implode(',', [
-                '"prof' . $docente->dni . '"',  // username
-                '"' . $docente->nombre . '"',   // firstname (nombre_normalizado)
-                '"' . $docente->apellido . '"', // lastname (apellido_normalizado)
-                '"' . $docente->email_virtual . '"', // email
+            'moodle_csv' => implode(',', [
+                '"prof'.$docente->dni.'"',  // username
+                '"'.$docente->nombre.'"',   // firstname (nombre_normalizado)
+                '"'.$docente->apellido.'"', // lastname (apellido_normalizado)
+                '"'.$docente->email_virtual.'"', // email
             ]),
         ]);
     }
 
     /**
-     * Marcar los docentes seleccionados como procesados.
+     * Da de alta en Moodle (vía API) los docentes seleccionados y marca como
+     * procesados los que se crearon o ya existían. Los que fallan no se marcan.
+     *
+     * Respuesta:
+     *   {
+     *     ok:      bool,
+     *     created: ["DNI", ...],   // creados ahora en Moodle
+     *     skipped: ["DNI", ...],   // ya existían en Moodle (marcados igual)
+     *     failed:  { "DNI": "mensaje de error", ... }
+     *   }
      */
-    public function procesarAltas(Request $request)
+    public function procesarAltas(Request $request, MoodleApiService $moodle)
     {
         $request->validate([
-            'ids'   => 'required|array|min:1',
+            'ids' => 'required|array|min:1',
             'ids.*' => 'integer|exists:docentes,id',
         ]);
 
-        Docente::whereIn('id', $request->ids)
+        $docentes = Docente::whereIn('id', $request->ids)
             ->where('de_baja', false)
-            ->update([
-                'is_procesado'   => true,
-                'fecha_procesado' => now(),
-            ]);
+            ->whereNotNull('email_virtual')
+            ->where('email_virtual', '!=', '')
+            ->get();
 
-        return response()->json(['ok' => true, 'procesados' => count($request->ids)]);
+        $resumen = $moodle->createUsers($docentes);
+
+        $dnisProcesados = array_merge($resumen['created'], $resumen['skipped']);
+        if ($dnisProcesados !== []) {
+            Docente::whereIn('dni', $dnisProcesados)
+                ->update([
+                    'is_procesado' => true,
+                    'fecha_procesado' => now(),
+                ]);
+        }
+
+        return response()->json([
+            'ok' => $resumen['failed'] === [],
+            'created' => $resumen['created'],
+            'skipped' => $resumen['skipped'],
+            'failed' => $resumen['failed'],
+        ]);
     }
 }
