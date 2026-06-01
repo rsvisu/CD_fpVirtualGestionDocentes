@@ -1,33 +1,15 @@
 services:
-    app-backend:
-        build: .
-        container_name: gestion-docentes-app
-        command: php artisan serve --host=0.0.0.0 --port=8000
+    mariadb-db:
+        image: mariadb:10.11
         ports:
-            - "8082:8000"
-        networks:
-            - red-interna
-        depends_on:
-            - mysql-db
-        environment:
-            DB_HOST: mysql-db
-
-    mysql-db:
-        image: mysql:8.0
-        ports:
-            - "3306:3306" # Para conectar desde el PC con DBeaver/TablePlus
+            - "3306:3306" # Para conectar desde el PC con DBeaver/TablePlus y también para Laravel local
         volumes:
             - db_data:/var/lib/mysql
-        networks:
-            - red-interna
         environment:
-            MYSQL_DATABASE: instituto
-            MYSQL_USER: alumno
-            MYSQL_PASSWORD: alumno
-            MYSQL_ROOT_PASSWORD: root12345
-networks:
-    red-interna:
-        driver: bridge
+            MARIADB_DATABASE: gestor_profesores
+            MARIADB_USER: gestor
+            MARIADB_PASSWORD: gestor
+            MARIADB_ROOT_PASSWORD: root12345
 
 volumes:
     db_data:
