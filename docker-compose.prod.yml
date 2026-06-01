@@ -1,0 +1,37 @@
+services:
+    app-backend:
+        build: .
+        container_name: gestion-docentes-app
+        ports:
+            # Reemplaza 8089 por el puerto que quieras exponer en tu servidor
+            - "8089:8000"
+        networks:
+            - red-interna
+        depends_on:
+            - mariadb-db
+        environment:
+            DB_HOST: mariadb-db
+            # Esto obligará al front compilado en Vite (public/build) a usar la URL correcta
+            APP_URL: ${APP_URL:-http://localhost:8089}
+
+    mariadb-db:
+        image: mariadb:10.11
+        ports:
+            # Exponemos el 3306 al host del servidor para acceder remotamente si es necesario
+            - "3306:3306" 
+        volumes:
+            - db_data:/var/lib/mysql
+        networks:
+            - red-interna
+        environment:
+            MARIADB_DATABASE: gestor_profesores
+            MARIADB_USER: gestor
+            MARIADB_PASSWORD: gestor
+            MARIADB_ROOT_PASSWORD: root12345
+
+networks:
+    red-interna:
+        driver: bridge
+
+volumes:
+    db_data:
