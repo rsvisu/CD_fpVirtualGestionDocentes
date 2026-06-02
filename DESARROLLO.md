@@ -1,8 +1,20 @@
-﻿# Guía de desarrollo
+# Guía de desarrollo
 
 Cómo levantar el proyecto en local para desarrollo.
 
-El entorno está configurado siguiendo el enfoque de **Entorno Local Nativo + Docker solo para la base de datos**. Esto ofrece el máximo rendimiento, perfecta integración con tu IDE (VS Code) y las herramientas de validación (`pest`, `pint`) instaladas localmente en tus dependencias de desarrollo.
+El entorno está configurado siguiendo un enfoque **entorno local nativo + docker para la base de datos**. Esto ofrece el máximo rendimiento, y perfecta integración con el IDE y las herramientas de validación (`pest`, `pint`) instaladas localmente en las dependencias de desarrollo.
+
+## Índice
+
+- [Requisitos](#requisitos)
+- [Desarrollo en local](#desarrollo-en-local) — trabajar en tu propio PC
+- [Servidor local de pruebas](#servidor-local-de-pruebas) — desplegar en la LAN para verlo por IP
+- [Acceso a la aplicación (login)](#acceso-a-la-aplicación-login)
+- [Datos de prueba](#datos-de-prueba)
+- [Tests y utilidades](#tests-y-utilidades)
+- [Acceder a la base de datos](#acceder-a-la-base-de-datos)
+- [Variables de entorno (Moodle)](#variables-de-entorno-moodle)
+- [Problemas frecuentes](#problemas-frecuentes)
 
 ## Requisitos
 
@@ -12,11 +24,15 @@ El entorno está configurado siguiendo el enfoque de **Entorno Local Nativo + Do
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (o simplemente el motor de Docker) para levantar MySQL.
 - Git.
 
-## Pasos de Configuración Inicial
+## Desarrollo en local
+
+Trabajar en el código en tu propio PC: PHP y Node corren de forma nativa, y Docker solo levanta la base de datos.
+
+### Configuración inicial (solo la primera vez)
 
 ```bash
 # 1. Clonar el repositorio e instalar dependencias locales
-git clone <url-del-repo>
+git clone https://github.com/FPVirtual/fp-virtual-gestion-docentes.git
 cd fp-virtual-gestion-docentes
 composer install
 npm install
@@ -32,7 +48,7 @@ APP_ENV=local
 APP_URL=http://localhost:8000
 
 DB_CONNECTION=mariadb
-DB_HOST=127.0.0.1   # Esto es clave para conectar al puerto expuesto por Docker
+DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_DATABASE=gestor_profesores
 DB_USERNAME=gestor
@@ -48,40 +64,138 @@ php artisan key:generate
 php artisan migrate:fresh --seed
 ```
 
-## Flujo de Trabajo Diario
+### Flujo de trabajo diario
 
-Una vez configurado, solo necesitas levantar los tres servicios de desarrollo. Puedes hacerlo individualmente o todo a la vez con el comando directo de composer:
+Son dos pasos: primero la base de datos (Docker), luego la app.
 
-### Opción Rápida (Recomendada)
+#### 1. Base de datos
+
+```bash
+docker compose up -d   # arranca MariaDB en segundo plano; solo si no está ya corriendo
+```
+
+#### 2. La app
+
 ```bash
 composer dev
-# Esto levantará a la vez el servidor de PHP, Node (Vite), logs y el worker de queues.
 ```
 
-### Comandos manuales correspondientes:
-- Backend: `php artisan serve` (La app estará en **http://localhost:8000**)
-- Frontend: `npm run dev` (Vite, para hot-reload)
-- Base de datos (si estuviera apagada): `docker compose up -d`
+`composer dev` arranca **a la vez** estos cuatro procesos (con un solo `Ctrl+C` los paras todos):
 
-## Variables de entorno
+| Proceso | Equivale a | Para qué |
+|---|---|---|
+| server | `php artisan serve` | La app en **http://localhost:8000** |
+| vite | `npm run dev` | Assets con hot-reload |
+| queue | `php artisan queue:listen --tries=1` | Worker de colas (jobs) |
+| logs | `php artisan pail` | Visor de logs en vivo |
 
-El archivo `.env.example` contiene valores base. Para integraciones clave en local:
+> **En Windows**, el proceso `logs` (pail) falla al arrancar porque requiere la extensión `pcntl`, que no existe en PHP para Windows. Es inofensivo: los otros tres siguen funcionando. Para ver logs, lee `storage/logs/laravel.log` directamente.
 
-### Moodle (integración API)
+Si prefieres lanzarlos por separado, cada fila de la tabla es el comando individual equivalente.
 
-Para que funcione la creación de docentes desde `/admin/alta-plataforma`:
+## Servidor local de pruebas
 
-```env
-MOODLE_URL=https://tu-moodle.example
-MOODLE_TOKEN=<token-de-web-services>
-MOODLE_USER_AUTH=oauth2
-MOODLE_USER_LANG=es
-MOODLE_TIMEOUT=15
+Para levantar la aplicación en un servidor de la red local y acceder a ella desde otro equipo por IP. Usa `docker-compose.server.yml`, que construye la imagen completa (PHP + assets Vite compilados) y la sirve junto a MariaDB.
+
+**Requisitos en el servidor:** Docker y Docker Compose. No necesita PHP ni Node instalados.
+
+Cómo funciona: la imagen lleva dentro el código y los assets ya compilados; la app se sirve con `php artisan serve` (suficiente para una demo interna en la LAN, no para tráfico real). MariaDB no expone ningún puerto al exterior: solo es accesible para la app dentro de la red de Docker.
+
+> **Importante:** el código queda *dentro* de la imagen Docker. Los cambios no se sincronizan automáticamente — hay que reconstruir la imagen (ver [Actualizar el código](#actualizar-el-código)).
+
+### Configuración inicial (solo la primera vez)
+
+```bash
+# 1. Clonar el repositorio en el servidor
+git clone https://github.com/FPVirtual/fp-virtual-gestion-docentes.git
+cd fp-virtual-gestion-docentes
+
+# 2. Crear el .env
+cp .env.example .env
 ```
 
-El token se obtiene en el Moodle de destino (Administración del sitio -> Servidor -> Web Services -> Tokens).
+**Edita el `.env`** (se monta dentro del contenedor). Ajusta estos valores:
 
-## Cómo se entra (login)
+```ini
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://192.168.1.50:8082   # IP del servidor en tu red, con el puerto
+
+DB_CONNECTION=mariadb
+DB_HOST=mariadb-db   # nombre del servicio docker (NO 127.0.0.1)
+DB_PORT=3306
+DB_DATABASE=gestor_profesores
+DB_USERNAME=gestor
+DB_PASSWORD=gestor
+```
+
+#### 3. Generar la APP_KEY (una sola vez — se guarda en el .env del servidor)
+
+Si el servidor **no tiene PHP** (lo normal usando Docker), genérala con un contenedor temporal. El `--rm` borra ese contenedor de usar y tirar al terminar; la clave queda guardada en tu `.env`:
+
+```bash
+docker compose -f docker-compose.server.yml run --rm fp-app php artisan key:generate
+```
+
+Si el servidor **sí tiene PHP** instalado, es más directo generarla sin Docker:
+
+```bash
+php artisan key:generate
+```
+
+### Levantar el servidor
+
+```bash
+docker compose -f docker-compose.server.yml build
+docker compose -f docker-compose.server.yml up -d
+```
+
+La aplicación queda accesible en **`http://IP_DEL_SERVIDOR:8082`**.
+
+Al arrancar, el contenedor ejecuta automáticamente las migraciones pendientes (solo aplica lo que falta) tras esperar a que la base de datos esté lista.
+
+### Poblar con datos de prueba (opcional, solo la primera vez)
+
+```bash
+docker compose -f docker-compose.server.yml exec fp-app php artisan db:seed
+docker compose -f docker-compose.server.yml exec fp-app php artisan db:seed --class=DocenteSeeder
+```
+
+### Actualizar el código
+
+```bash
+git pull
+docker compose -f docker-compose.server.yml build
+docker compose -f docker-compose.server.yml up -d
+```
+
+Los contenedores se recrean con la nueva imagen (código y assets actualizados). La base de datos no se toca.
+
+### Otros comandos útiles
+
+```bash
+# Ver logs en tiempo real
+docker compose -f docker-compose.server.yml logs -f
+
+# Parar (conserva la BD)
+docker compose -f docker-compose.server.yml down
+
+# Consola dentro del contenedor de la app
+docker compose -f docker-compose.server.yml exec fp-app bash
+
+# Reiniciar solo la app (p.ej. tras cambiar el .env)
+docker compose -f docker-compose.server.yml restart fp-app
+```
+
+### Resetear la base de datos
+
+```bash
+# ⚠ Borra todos los datos
+docker compose -f docker-compose.server.yml down -v
+docker compose -f docker-compose.server.yml up -d
+```
+
+## Acceso a la aplicación (login)
 
 Hay dos guards distintos:
 
@@ -114,7 +228,7 @@ Ejemplos del `UsuarioSeeder`:
 php artisan db:seed --class=DocenteSeeder
 ```
 
-## Ejecución de utilidades y Tests
+## Tests y utilidades
 
 Dado que las dependencias (`vendor`) están instaladas en el host, tu IDE funcionará perfectamente y podrás ejecutar todos los binarios localmente sin fricción:
 
@@ -133,7 +247,7 @@ php artisan queue:work
 
 Los tests usan `RefreshDatabase`, así que crean y destruyen las tablas en la propia BD (`gestor_profesores`). No afectan a datos manuales que tengas si los re-siembras después.
 
-## Acceder a la BD desde el host
+## Acceder a la base de datos
 
 El puerto `3306` está expuesto. Configura DBeaver/TablePlus:
 
@@ -144,6 +258,20 @@ El puerto `3306` está expuesto. Configura DBeaver/TablePlus:
 | Database | gestor_profesores |
 | User | gestor o root |
 | Password | gestor o root12345 |
+
+## Variables de entorno (Moodle)
+
+El archivo `.env.example` contiene valores base. Para que funcione la creación de docentes desde `/admin/alta-plataforma`:
+
+```env
+MOODLE_URL=https://tu-moodle.example
+MOODLE_TOKEN=<token-de-web-services>
+MOODLE_USER_AUTH=oauth2
+MOODLE_USER_LANG=es
+MOODLE_TIMEOUT=15
+```
+
+El token se obtiene en el Moodle de destino (Administración del sitio -> Servidor -> Web Services -> Tokens).
 
 ## Problemas frecuentes
 
@@ -158,5 +286,3 @@ php artisan migrate --seed
 
 **Logs de Moodle vacíos**  
 Las llamadas a la API de Moodle se loguean en `storage/logs/moodle_api.log` (canal `moodle_api`), separado de `laravel.log`. Si no aparece nada, comprueba que MOODLE_URL y MOODLE_TOKEN están rellenos.
-
-_Nota: El `Dockerfile` y scripts adjuntos como `start.sh` o `supervisord.conf` son utilizados estrictamente para empaquetar la aplicación en el despliegue de Producción._
