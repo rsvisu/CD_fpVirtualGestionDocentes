@@ -11,6 +11,9 @@ class LoginController extends Controller
 {
     public function showLoginForm()
     {
+        if (Auth::guard('admin')->check()) {
+            return redirect()->route('admin.dashboard');
+        }
         return view('admin.login');
     }
 
@@ -21,11 +24,11 @@ class LoginController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        // Intentar login por nombre
+        // Intentar login por nombre (remember=true para persistir entre sesiones de usuario)
         $loginByName = Auth::guard('admin')->attempt([
-            'nombre' => $credentials['user'],
+            'user' => $credentials['user'],
             'password' => $credentials['password']
-        ], $request->boolean('remember'));
+        ], true);
 
         // Intentar login por email si el anterior falla
         $loginByEmail = false;
@@ -33,7 +36,7 @@ class LoginController extends Controller
             $loginByEmail = Auth::guard('admin')->attempt([
                 'email' => $credentials['user'],
                 'password' => $credentials['password']
-            ], $request->boolean('remember'));
+            ], true);
         }
 
         if ($loginByName || $loginByEmail) {

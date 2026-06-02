@@ -161,7 +161,7 @@ class DocenteController extends Controller
                 'modulos_por_centro' => array_values($modulosPorCentro),
                 'todos_los_modulos' => $todosLosModulos,
                 'tutorias' => $tutorias,
-                'coordinaciones' => $coordinaciones
+                'coordinaciones' => $coordinaciones,
             ]);
 
             

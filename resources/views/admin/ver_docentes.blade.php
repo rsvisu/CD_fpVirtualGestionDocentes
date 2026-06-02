@@ -13,6 +13,7 @@
             docenteInfo: {},
             isLoading: false,
             error: null,
+            togglingAdmin: false,
             loadDocenteInfo(docenteId) {
                 this.isLoading = true;
                 this.error = null;
@@ -40,6 +41,25 @@
                 .finally(() => {
                     this.isLoading = false;
                 });
+            },
+            toggleAdmin(dni) {
+                if (this.togglingAdmin) return;
+                this.togglingAdmin = true;
+                const token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                fetch(`/admin/docentes/${dni}/toggle-admin`, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': token }
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        this.docenteInfo.usuario_is_admin = data.is_admin;
+                    } else {
+                        alert(data.error ?? 'Error al cambiar el rol.');
+                    }
+                })
+                .catch(() => alert('Error al cambiar el rol.'))
+                .finally(() => { this.togglingAdmin = false; });
             }
         }));
     });
@@ -183,7 +203,7 @@
                         this.showModal = true;
                         this.isLoading = true;
                         this.errorMessage = '';
-                        
+
                         fetch(`/admin/docentes/${dni}/info`, {
                             headers: {
                                 'Accept': 'application/json',

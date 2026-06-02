@@ -3,15 +3,44 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\CentroDocente;
 use App\Models\Docente;
 use Illuminate\Http\Request;
 
 class AltaPlataformaController extends Controller
 {
+    /** Contraseña inicial fija para todos los docentes de Google Workspace */
+    private const PASSWORD_INICIAL = 'Cambiam3!_';
+
+    /** Unidad organizativa en Google Workspace */
+    private const ORG_UNIT = '/Profesorado';
+
     /**
-     * Listado de docentes pendientes/procesados para dar de alta en plataformas.
-     * Excluye los que están de baja y los que no tienen email_virtual aún.
+     * Cabecera oficial del CSV de Google Workspace (29 columnas).
      */
+    private const GOOGLE_HEADER = 'First Name [Required],Last Name [Required],Email Address [Required],'
+        . 'Password [Required],Password Hash Function [UPLOAD ONLY],Org Unit Path [Required],'
+        . 'New Primary Email [UPLOAD ONLY],Recovery Email,Home Secondary Email,Work Secondary Email,'
+        . 'Recovery Phone [MUST BE IN THE E.164 FORMAT],Work Phone,Home Phone,Mobile Phone,'
+        . 'Work Address,Home Address,Employee ID,Employee Type,Employee Title,Manager Email,'
+        . 'Department,Cost Center,Building ID,Floor Name,Floor Section,'
+        . 'Change Password at Next Sign-In,New Status [UPLOAD ONLY],New Licenses [UPLOAD ONLY],'
+        . 'Advanced Protection Program enrollment';
+
+    /**
+     * Cabecera del CSV de Moodle (mismo formato de 29 columnas que Google Workspace).
+     */
+    private const MOODLE_HEADER = 'First Name [Required],Last Name [Required],Email Address [Required],'
+        . 'Password [Required],Password Hash Function [UPLOAD ONLY],Org Unit Path [Required],'
+        . 'New Primary Email [UPLOAD ONLY],Recovery Email,Home Secondary Email,Work Secondary Email,'
+        . 'Recovery Phone [MUST BE IN THE E.164 FORMAT],Work Phone,Home Phone,Mobile Phone,'
+        . 'Work Address,Home Address,Employee ID,Employee Type,Employee Title,Manager Email,'
+        . 'Department,Cost Center,Building ID,Floor Name,Floor Section,'
+        . 'Change Password at Next Sign-In,New Status [UPLOAD ONLY],New Licenses [UPLOAD ONLY],'
+        . 'Advanced Protection Program enrollment';
+
+    // ── index ─────────────────────────────────────────────────────────────────
+
     public function index(Request $request)
     {
         $query = Docente::query()
@@ -19,7 +48,6 @@ class AltaPlataformaController extends Controller
             ->whereNotNull('email_virtual')
             ->where('email_virtual', '!=', '');
 
-        // Filtro por estado
         if ($request->filled('estado')) {
             if ($request->estado === 'pendiente') {
                 $query->where('is_procesado', false);
@@ -28,7 +56,6 @@ class AltaPlataformaController extends Controller
             }
         }
 
-        // Búsqueda por nombre, apellido o DNI
         if ($request->filled('buscar')) {
             $buscar = $request->buscar;
             $query->where(function ($q) use ($buscar) {
@@ -40,55 +67,121 @@ class AltaPlataformaController extends Controller
 
         $docentes = $query->clone()->orderBy('apellido')->orderBy('nombre')->paginate(20)->withQueryString();
 
-        // Embed all docente data as JSON for client-side CSV generation
-        // Use clone() so paginate()'s LIMIT/OFFSET don't bleed into this query
-        $docentesJson = $query->clone()->orderBy('apellido')->orderBy('nombre')->get()->map(function ($d) {
-            return [
-                'id'            => $d->id,
-                'dni'           => $d->dni,
-                'nombre'        => $d->nombre,
-                'apellido'      => $d->apellido,
-                'email_virtual' => $d->email_virtual,
-                'is_procesado'  => $d->is_procesado,
+        // Cargamos emails personales en bloque (evita N+1)
+        $dnis = $query->clone()->pluck('dni');
+        $emailsByDni = CentroDocente::whereIn('dni', $dnis)
+            ->whereNotNull('email')
+            ->where('email', '!=', '')
+            ->orderBy('id_centro')
+            ->get()
+            ->groupBy('dni')
+            ->map(fn($items) => $items->first()->email);
+
+        $docentesJson = $query->clone()->orderBy('apellido')->orderBy('nombre')->get()
+            ->map(fn($d) => [
+                'id'             => $d->id,
+                'dni'            => $d->dni,
+                'nombre'         => $d->nombre,
+                'apellido'       => $d->apellido,
+                'email_virtual'  => $d->email_virtual,
+                'email_personal' => $emailsByDni[$d->dni] ?? '',
+                'is_procesado'   => $d->is_procesado,
                 'fecha_procesado' => $d->fecha_procesado?->format('d/m/Y H:i'),
-            ];
-        });
+            ]);
 
         return view('admin.alta_plataforma', compact('docentes', 'docentesJson'));
     }
 
-    /**
-     * AJAX — Previsualización de la línea CSV para un docente.
-     */
+    // ── preview ───────────────────────────────────────────────────────────────
+
     public function preview(int $id)
     {
-        $docente = Docente::findOrFail($id);
+        $docente       = Docente::findOrFail($id);
+        $emailPersonal = CentroDocente::where('dni', $docente->dni)
+                            ->whereNotNull('email')->where('email', '!=', '')
+                            ->value('email') ?? '';
 
-        $local = explode('@', $docente->email_virtual)[0] ?? $docente->email_virtual;
+        // 29 columnas Google Workspace (#61)
+        $googleCols = [
+            $docente->nombre,           //  1 First Name [Required]
+            $docente->apellido,         //  2 Last Name [Required]
+            $docente->email_virtual,    //  3 Email Address [Required]
+            self::PASSWORD_INICIAL,     //  4 Password [Required]
+            '',                         //  5 Password Hash Function [UPLOAD ONLY]
+            self::ORG_UNIT,             //  6 Org Unit Path [Required]
+            '',                         //  7 New Primary Email [UPLOAD ONLY]
+            $emailPersonal,             //  8 Recovery Email
+            '',                         //  9 Home Secondary Email
+            $emailPersonal,             // 10 Work Secondary Email
+            '',                         // 11 Recovery Phone
+            '',                         // 12 Work Phone
+            '',                         // 13 Home Phone
+            '',                         // 14 Mobile Phone
+            '',                         // 15 Work Address
+            '',                         // 16 Home Address
+            $docente->dni,              // 17 Employee ID
+            '',                         // 18 Employee Type
+            '',                         // 19 Employee Title
+            '',                         // 20 Manager Email
+            '',                         // 21 Department
+            '',                         // 22 Cost Center
+            '',                         // 23 Building ID
+            '',                         // 24 Floor Name
+            '',                         // 25 Floor Section
+            'TRUE',                     // 26 Change Password at Next Sign-In
+            'Active',                   // 27 New Status [UPLOAD ONLY]
+            '',                         // 28 New Licenses [UPLOAD ONLY]
+            'FALSE',                    // 29 Advanced Protection Program enrollment
+        ];
+
+        // 29 columnas Moodle (#62) — sin Work Secondary Email ni New Status
+        $moodleCols = [
+            $docente->nombre,           //  1 First Name [Required]
+            $docente->apellido,         //  2 Last Name [Required]
+            $docente->email_virtual,    //  3 Email Address [Required]
+            self::PASSWORD_INICIAL,     //  4 Password [Required]
+            '',                         //  5 Password Hash Function [UPLOAD ONLY]
+            self::ORG_UNIT,             //  6 Org Unit Path [Required]
+            '',                         //  7 New Primary Email [UPLOAD ONLY]
+            $emailPersonal,             //  8 Recovery Email
+            '',                         //  9 Home Secondary Email
+            '',                         // 10 Work Secondary Email
+            '',                         // 11 Recovery Phone
+            '',                         // 12 Work Phone
+            '',                         // 13 Home Phone
+            '',                         // 14 Mobile Phone
+            '',                         // 15 Work Address
+            '',                         // 16 Home Address
+            $docente->dni,              // 17 Employee ID
+            '',                         // 18 Employee Type
+            '',                         // 19 Employee Title
+            '',                         // 20 Manager Email
+            '',                         // 21 Department
+            '',                         // 22 Cost Center
+            '',                         // 23 Building ID
+            '',                         // 24 Floor Name
+            '',                         // 25 Floor Section
+            'TRUE',                     // 26 Change Password at Next Sign-In
+            '',                         // 27 New Status [UPLOAD ONLY]
+            '',                         // 28 New Licenses [UPLOAD ONLY]
+            'FALSE',                    // 29 Advanced Protection Program enrollment
+        ];
 
         return response()->json([
             'dni'           => $docente->dni,
             'nombre'        => $docente->nombre,
             'apellido'      => $docente->apellido,
             'email_virtual' => $docente->email_virtual,
-            'google_csv'    => implode(',', [
-                $docente->nombre . ' ' . $docente->apellido,
-                $docente->email_virtual,
-                '',  // Password (vacío — se generará)
-                '',  // Org unit
-            ]),
-            'moodle_csv'    => implode(',', [
-                '"prof' . $docente->dni . '"',  // username
-                '"' . $docente->nombre . '"',   // firstname (nombre_normalizado)
-                '"' . $docente->apellido . '"', // lastname (apellido_normalizado)
-                '"' . $docente->email_virtual . '"', // email
-            ]),
+            'email_personal' => $emailPersonal,
+            'google_csv'    => implode(',', $googleCols),
+            'moodle_csv'    => implode(',', $moodleCols),
+            'google_header' => self::GOOGLE_HEADER,
+            'moodle_header' => self::MOODLE_HEADER,
         ]);
     }
 
-    /**
-     * Marcar los docentes seleccionados como procesados.
-     */
+    // ── procesarAltas ─────────────────────────────────────────────────────────
+
     public function procesarAltas(Request $request)
     {
         $request->validate([
@@ -99,7 +192,7 @@ class AltaPlataformaController extends Controller
         Docente::whereIn('id', $request->ids)
             ->where('de_baja', false)
             ->update([
-                'is_procesado'   => true,
+                'is_procesado'    => true,
                 'fecha_procesado' => now(),
             ]);
 
