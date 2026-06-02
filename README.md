@@ -2,6 +2,8 @@
 
 Aplicación para la gestión del profesorado en FP virtual en Aragón
 
+> Para levantar el proyecto en local ver [DESARROLLO.md](./DESARROLLO.md).
+
 ## Descripción
 
 Aplicación web desarrollada en Laravel 10 y Vue 3 para la gestión del profesorado en FP virtual en Aragón. Permite gestionar asignaturas, profesores, grupos, aulas y horarios de manera sencilla e intuitiva.

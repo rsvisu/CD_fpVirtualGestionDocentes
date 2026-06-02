@@ -1,0 +1,36 @@
+services:
+    fp-app:
+        build: .
+        container_name: gestion-docentes-app
+        restart: unless-stopped
+        # Sobrescribe el arranque de la imagen (supervisor/php-fpm) por el servidor HTTP propio
+        # de Laravel, que sí sirve la web y los estáticos. Migra antes (idempotente).
+        command: sh -c "php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000"
+        ports:
+            - "8082:8000"           # http://IP_DEL_SERVIDOR:8082
+        volumes:
+            - ./.env:/var/www/html/.env   # usa TU .env (APP_KEY, DB_HOST, APP_URL)
+        depends_on:
+            mariadb-db:
+                condition: service_healthy   # espera a que la BD esté lista antes de migrar
+
+    mariadb-db:
+        image: mariadb:10.11        # misma versión que docker-compose.yml local
+        container_name: gestion-docentes-db
+        restart: unless-stopped
+        volumes:
+            - db_data:/var/lib/mysql   # sin puerto expuesto: la BD solo es accesible dentro de la red docker
+        environment:
+            MARIADB_DATABASE: ${DB_DATABASE:-gestor_profesores}
+            MARIADB_USER: ${DB_USERNAME:-gestor}
+            MARIADB_PASSWORD: ${DB_PASSWORD:-gestor}
+            MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root12345}
+        healthcheck:
+            test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+volumes:
+    db_data:
+        name: gestion_docentes_db
