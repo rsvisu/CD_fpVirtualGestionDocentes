@@ -2,14 +2,14 @@ services:
     mariadb-db:
         image: mariadb:10.11
         ports:
-            - "3306:3306" # Para conectar desde el PC con DBeaver/TablePlus y también para Laravel local
+            - "${DB_PORT:-3306}:3306" # Para conectar desde el PC con DBeaver/TablePlus y también para Laravel local
         volumes:
             - db_data:/var/lib/mysql
         environment:
-            MARIADB_DATABASE: gestor_profesores
-            MARIADB_USER: gestor
-            MARIADB_PASSWORD: gestor
-            MARIADB_ROOT_PASSWORD: root12345
+            MARIADB_DATABASE: ${DB_DATABASE:-gestor_profesores}
+            MARIADB_USER: ${DB_USERNAME:-gestor}
+            MARIADB_PASSWORD: ${DB_PASSWORD:-gestor}
+            MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root12345}
 
 volumes:
     db_data:
