@@ -90,10 +90,7 @@ Route::middleware(['auth'])->group(function () {
 Route::middleware('web')->prefix('admin')->name('admin.')->group(function () {
     // Ruta /admin que redirige al dashboard si está autenticado como admin, o al login
     Route::get('/', function () {
-        if (auth()->check() && \App\Models\Admin::where('email', auth()->user()->email)->exists()) {
-            return redirect()->route('admin.dashboard');
-        }
-        if (auth('admin')->check()) {
+        if (auth()->check() && auth()->user()->is_admin) {
             return redirect()->route('admin.dashboard');
         }
         return redirect()->route('admin.login');
