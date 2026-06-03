@@ -7,23 +7,24 @@
  *   ./vendor/bin/pest tests/Feature/AltaPlataformaTest.php --no-coverage
  */
 
-use App\Models\Admin;
 use App\Models\Centro;
 use App\Models\CentroDocente;
 use App\Models\Docente;
+use App\Models\Usuario;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function adminUser(): Admin
+function adminUser(): Usuario
 {
-    return Admin::forceCreate([
-        'user'     => 'admin_test',
-        'email'    => 'admin@test.com',
-        'password' => bcrypt('secret'),
-    ]);
+    // El panel admin usa el guard web + is_admin (no un guard separado).
+    // is_admin no es fillable a propósito, por eso se asigna con forceFill.
+    $admin = Usuario::factory()->create();
+    $admin->forceFill(['is_admin' => true])->save();
+
+    return $admin;
 }
 
 function docenteConEmail(array $extra = []): Docente
@@ -52,17 +53,18 @@ test('A1 · usuario no autenticado es redirigido al login de admin', function ()
 
 test('A2 · usuario normal (guard web) no puede acceder a la vista de admin', function () {
     $centro  = Centro::forceCreate(['id_centro' => 'AP01', 'nombre' => 'Centro AP Test']);
-    $usuario = \App\Models\Usuario::factory()->create(['id_centro' => 'AP01']);
+    $usuario = Usuario::factory()->create(['id_centro' => 'AP01']);
 
+    // Autenticado pero sin is_admin: el middleware EsAdmin responde 403.
     $this->actingAs($usuario, 'web')
          ->get('/admin/alta-plataforma')
-         ->assertRedirect('/admin/login');
+         ->assertForbidden();
 });
 
 test('A3 · admin autenticado puede acceder a la vista de alta plataforma', function () {
     $admin = adminUser();
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->get('/admin/alta-plataforma')
          ->assertStatus(200);
 });
@@ -71,7 +73,7 @@ test('A4 · la vista muestra docentes con email_virtual asignado', function () {
     $admin   = adminUser();
     $docente = docenteConEmail(['nombre' => 'Alicia', 'apellido' => 'Constante Lanuza']);
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->get('/admin/alta-plataforma')
          ->assertStatus(200)
          ->assertSee('Alicia')
@@ -83,7 +85,7 @@ test('A5 · la vista NO muestra docentes dados de baja', function () {
     $bajado       = docenteConEmail(['nombre' => 'BajadoTest', 'de_baja' => true]);
     $activo       = docenteConEmail(['nombre' => 'ActivoTest',  'de_baja' => false]);
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->get('/admin/alta-plataforma');
 
     $response->assertStatus(200)
@@ -96,7 +98,7 @@ test('A6 · filtro estado=pendiente muestra solo docentes no procesados', functi
     $pendiente = docenteConEmail(['nombre' => 'SoloPendienteXYZ', 'is_procesado' => false]);
     $procesado = docenteConEmail(['nombre' => 'SoloProcesadoXYZ', 'is_procesado' => true, 'fecha_procesado' => now()]);
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->get('/admin/alta-plataforma?estado=pendiente');
 
     $response->assertStatus(200)
@@ -109,7 +111,7 @@ test('A7 · filtro estado=procesado muestra solo docentes ya procesados', functi
     $pendiente = docenteConEmail(['nombre' => 'Pendiente2', 'is_procesado' => false]);
     $procesado = docenteConEmail(['nombre' => 'Procesado2', 'is_procesado' => true, 'fecha_procesado' => now()]);
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->get('/admin/alta-plataforma?estado=procesado');
 
     $response->assertStatus(200)
@@ -130,7 +132,7 @@ test('B2 · procesarAltas marca is_procesado=true y guarda fecha_procesado', fun
     $admin   = adminUser();
     $docente = docenteConEmail(['is_procesado' => false]);
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$docente->id]])
          ->assertStatus(200)
          ->assertJson(['ok' => true]);
@@ -148,7 +150,7 @@ test('B3 · procesarAltas no modifica docentes de baja', function () {
     $admin  = adminUser();
     $bajado = docenteConEmail(['de_baja' => true, 'is_procesado' => false]);
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$bajado->id]])
          ->assertStatus(200);
 
@@ -161,7 +163,7 @@ test('B3 · procesarAltas no modifica docentes de baja', function () {
 test('B4 · procesarAltas valida que ids sea requerido', function () {
     $admin = adminUser();
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->postJson('/admin/alta-plataforma/procesar', [])
          ->assertStatus(422)
          ->assertJsonValidationErrors(['ids']);
@@ -170,7 +172,7 @@ test('B4 · procesarAltas valida que ids sea requerido', function () {
 test('B5 · procesarAltas valida que ids sea un array', function () {
     $admin = adminUser();
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->postJson('/admin/alta-plataforma/procesar', ['ids' => 'no-es-array'])
          ->assertStatus(422)
          ->assertJsonValidationErrors(['ids']);
@@ -179,7 +181,7 @@ test('B5 · procesarAltas valida que ids sea un array', function () {
 test('B6 · procesarAltas valida que los ids existen en la tabla docentes', function () {
     $admin = adminUser();
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->postJson('/admin/alta-plataforma/procesar', ['ids' => [99999]])
          ->assertStatus(422)
          ->assertJsonValidationErrors(['ids.0']);
@@ -190,7 +192,7 @@ test('B7 · procesarAltas devuelve JSON con ok=true y el número de procesados',
     $d1    = docenteConEmail();
     $d2    = docenteConEmail();
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->postJson('/admin/alta-plataforma/procesar', ['ids' => [$d1->id, $d2->id]])
          ->assertStatus(200)
          ->assertJson(['ok' => true, 'procesados' => 2]);
@@ -202,7 +204,7 @@ test('C1 · preview devuelve JSON con todos los campos esperados', function () {
     $admin   = adminUser();
     $docente = docenteConEmail();
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->getJson("/admin/alta-plataforma/{$docente->id}/preview")
          ->assertStatus(200)
          ->assertJsonStructure([
@@ -215,7 +217,7 @@ test('C2 · google_csv tiene exactamente 29 columnas', function () {
     $admin   = adminUser();
     $docente = docenteConEmail();
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
 
     $googleCsv = $response->json('google_csv');
@@ -227,7 +229,7 @@ test('C3 · google_csv contiene la contraseña y la unidad organizativa correcta
     $admin   = adminUser();
     $docente = docenteConEmail();
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
 
     $cols = str_getcsv($response->json('google_csv'));
@@ -246,7 +248,7 @@ test('C4 · el email_personal aparece en Recovery Email (col 8) y Work Secondary
         'email'     => 'personal@example.com',
     ]);
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
 
     $cols = str_getcsv($response->json('google_csv'));
@@ -260,7 +262,7 @@ test('C5 · moodle_csv tiene exactamente 29 columnas (mismo formato que Google W
     $admin   = adminUser();
     $docente = docenteConEmail();
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
 
     $moodleCsv = $response->json('moodle_csv');
@@ -273,7 +275,7 @@ test('C7 · moodle_header tiene exactamente 29 nombres de columna', function () 
     $admin   = adminUser();
     $docente = docenteConEmail();
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
 
     $header = $response->json('moodle_header');
@@ -288,7 +290,7 @@ test('C6 · google_header tiene exactamente 29 nombres de columna', function () 
     $admin   = adminUser();
     $docente = docenteConEmail();
 
-    $response = $this->actingAs($admin, 'admin')
+    $response = $this->actingAs($admin)
                      ->getJson("/admin/alta-plataforma/{$docente->id}/preview");
 
     $header = $response->json('google_header');
@@ -307,7 +309,7 @@ test('D1 · búsqueda por nombre muestra solo los docentes que coinciden', funct
     $encontrar = docenteConEmail(['nombre' => 'UnicoNombre']);
     $otro      = docenteConEmail(['nombre' => 'OtroNombre']);
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->get('/admin/alta-plataforma?buscar=UnicoNombre')
          ->assertStatus(200)
          ->assertSee('UnicoNombre')
@@ -319,7 +321,7 @@ test('D2 · búsqueda por apellido muestra solo los docentes que coinciden', fun
     $encontrar = docenteConEmail(['apellido' => 'UnicoApellido']);
     $otro      = docenteConEmail(['apellido' => 'OtroApellido']);
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->get('/admin/alta-plataforma?buscar=UnicoApellido')
          ->assertStatus(200)
          ->assertSee('UnicoApellido')
@@ -331,7 +333,7 @@ test('D3 · búsqueda por DNI muestra solo el docente que coincide', function ()
     $encontrar = docenteConEmail(['dni' => '99887766X']);
     $otro      = docenteConEmail(['dni' => '11223344Y']);
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->get('/admin/alta-plataforma?buscar=99887766X')
          ->assertStatus(200)
          ->assertSee('99887766X')
@@ -344,7 +346,7 @@ test('D4 · sin filtros se muestran todos los docentes activos con email_virtual
     $d2    = docenteConEmail(['nombre' => 'Segundo']);
     $d3    = docenteConEmail(['nombre' => 'Tercero']);
 
-    $this->actingAs($admin, 'admin')
+    $this->actingAs($admin)
          ->get('/admin/alta-plataforma')
          ->assertStatus(200)
          ->assertSee('Primero')
