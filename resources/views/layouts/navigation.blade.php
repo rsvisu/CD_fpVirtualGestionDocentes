@@ -57,6 +57,13 @@
                         {{ __('Baja Docente') }}
                     </x-nav-link>
                 </div>
+                @if(auth()->check() && auth()->user()->is_admin)
+                <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
+                    <x-nav-link :href="route('admin.alta-plataforma')" :active="request()->routeIs('admin.alta-plataforma')">
+                        {{ __('Alta Plataforma') }}
+                    </x-nav-link>
+                </div>
+                @endif
             </div>
 
             <!-- Settings Dropdown -->
@@ -157,6 +164,13 @@
                 {{ __('Baja Docente') }}
             </x-responsive-nav-link>
         </div>
+        @if(auth()->check() && auth()->user()->is_admin)
+        <div class="pt-2 pb-3 space-y-1">
+            <x-responsive-nav-link :href="route('admin.alta-plataforma')" :active="request()->routeIs('admin.alta-plataforma')">
+                {{ __('Alta Plataforma') }}
+            </x-responsive-nav-link>
+        </div>
+        @endif
         <!-- Responsive Settings Options -->
         <div class="pt-4 pb-1 border-t border-gray-200">
             <div class="mt-3 space-y-1">               
