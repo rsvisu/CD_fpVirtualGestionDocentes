@@ -88,20 +88,23 @@ sequenceDiagram
 
 ### Asignación de roles en tiempo real
 
-Solo se ejecuta si `docentes.is_procesado = true`.
+Solo se ejecuta si `docentes.is_procesado = true`. La operación es atómica: si Moodle falla, el cambio en BD se revierte.
 
 ```mermaid
 flowchart LR
     A[Centro asigna tutor/coordinador/docencia] --> B{is_procesado?}
-    B -- No --> C[Solo guarda en BD local\nSe sincronizará al dar de alta]
-    B -- Sí --> D[Guarda en BD local]
-    D --> E[Llama a Moodle API]
-    E --> F{¿Éxito?}
-    F -- Sí --> G[Sincronizado]
-    F -- No --> H[Log ERROR\nBD ya tiene el cambio]
+    B -- No --> C[Guarda en BD local\nSe sincronizará al dar de alta]
+    B -- Sí --> D[DB::transaction]
+    D --> E[Guarda en BD]
+    E --> F[Llama a Moodle API]
+    F --> G{¿Éxito?}
+    G -- Sí --> H[commit — Sincronizado]
+    G -- No --> I[rollback — Usuario ve error]
 ```
 
 ### Baja de un docente
+
+Operación atómica: si cualquier llamada a Moodle falla, se hace rollback y la baja no se confirma.
 
 ```mermaid
 sequenceDiagram
@@ -111,7 +114,8 @@ sequenceDiagram
     participant Moodle
 
     Usuario->>App: POST /docentes/baja/{dni}
-    App->>BD: Obtiene roles del docente en este centro
+    App->>BD: BEGIN TRANSACTION
+    App->>BD: de_baja=true
 
     alt is_procesado = true
         loop Por cada rol de tutor/coordinador
@@ -126,11 +130,17 @@ sequenceDiagram
         end
     end
 
-    App->>BD: de_baja=true
-    Note over App,Moodle: Si Moodle falla, la baja en BD se confirma igual
+    alt Todo OK
+        App->>BD: COMMIT
+    else Moodle falla
+        App->>BD: ROLLBACK
+        App-->>Usuario: Error — baja no confirmada
+    end
 ```
 
 ### Reactivación
+
+Operación atómica: si Moodle falla, se hace rollback y el docente sigue marcado como de baja.
 
 ```mermaid
 sequenceDiagram
@@ -140,12 +150,20 @@ sequenceDiagram
     participant Moodle
 
     Usuario->>App: POST /docentes/reactivar/{dni}
+    App->>BD: BEGIN TRANSACTION
     App->>BD: de_baja=false
 
     alt is_procesado = true
         App->>Moodle: core_user_update_users (suspended=0)
         App->>Moodle: core_cohort_add_cohort_members (roles actuales en BD)
         App->>Moodle: enrol_manual_enrol_users (docencias actuales en BD)
+    end
+
+    alt Todo OK
+        App->>BD: COMMIT
+    else Moodle falla
+        App->>BD: ROLLBACK
+        App-->>Usuario: Error — reactivación no confirmada
     end
 ```
 
@@ -226,7 +244,7 @@ coordinadores_ciclo_IFC301
 ...
 ```
 
-Si la cohorte no existe, la operación se omite con un `WARNING` en el log (no falla).
+Si la cohorte no existe al intentar **eliminar** a un miembro, la operación se omite con `WARNING` (no falla). Si no existe al intentar **añadir**, Moodle devuelve un error y la operación hace rollback.
 
 ### 2. Cursos de módulos
 
@@ -254,7 +272,7 @@ Niveles utilizados:
 |-------|--------|
 | `INFO` | Operación ejecutada correctamente (creación, matrícula, suspensión) |
 | `WARNING` | Cohorte o curso no encontrado, usuario no encontrado — operación omitida sin error |
-| `ERROR` | Llamada a Moodle fallida — la operación en BD ya se confirmó, requiere revisión manual |
+| `ERROR` | Llamada a Moodle fallida — la operación en BD fue revertida (rollback), el usuario vio el error |
 
 Para diagnosticar un alta fallida, revisar también la respuesta JSON de `procesarAltas`:
 ```json
