@@ -3,42 +3,39 @@
 namespace App\Http\Controllers;
 
 use App\Models\Coordinador;
+use App\Models\Docente;
 use App\Models\Tutor;
 use App\Models\Ciclo;
+use App\Services\MoodleApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-
-
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class EstablecerTutorController extends Controller
 {
-        public function index(Request $request)
+    public function index(Request $request)
     {
         $user = Auth::user();
         $centro = $user->centro;
 
-        // Obtener el campo de ordenación (por defecto 'nombre')
         $sortField = $request->input('sort', 'nombre');
 
-        // Obtener tutores con relaciones
         $tutores = Tutor::with('ciclo', 'docente')
             ->where('id_centro', $centro->id_centro)
             ->get();
 
-        // Ordenar según el campo seleccionado
         $tutores = match ($sortField) {
-            'ciclo' => $tutores->sortBy(fn($t) => strtolower($t->ciclo->nombre)),
-            'nombre' => $tutores->sortBy(fn($t) => [strtolower($t->docente->nombre), strtolower($t->docente->apellido)]),
+            'ciclo'    => $tutores->sortBy(fn($t) => strtolower($t->ciclo->nombre)),
+            'nombre'   => $tutores->sortBy(fn($t) => [strtolower($t->docente->nombre), strtolower($t->docente->apellido)]),
             'apellido' => $tutores->sortBy(fn($t) => [strtolower($t->docente->apellido), strtolower($t->docente->nombre)]),
-            'dni' => $tutores->sortBy(fn($t) => strtolower($t->docente->dni)),
-            default => $tutores->sortBy(fn($t) => strtolower($t->docente->$sortField)),
+            'dni'      => $tutores->sortBy(fn($t) => strtolower($t->docente->dni)),
+            default    => $tutores->sortBy(fn($t) => strtolower($t->docente->$sortField)),
         };
 
-        // Ciclos del centro
         $ciclos = $centro->ciclos;
-        
-        // Docentes del centro
-        $docentes = \App\Models\Docente::whereIn('dni', function ($query) use ($centro) {
+
+        $docentes = Docente::whereIn('dni', function ($query) use ($centro) {
             $query->select('dni')
                 ->from('centro_docente')
                 ->where('id_centro', $centro->id_centro);
@@ -47,11 +44,11 @@ class EstablecerTutorController extends Controller
         return view('establecer_tutor', compact('ciclos', 'tutores', 'docentes', 'sortField'));
     }
 
-    public function store(Request $request)
+    public function store(Request $request, MoodleApiService $moodle)
     {
         $request->validate([
             'id_ciclo' => 'required|exists:ciclos,id_ciclo',
-            'dni' => 'required|string',
+            'dni'      => 'required|string',
         ]);
 
         $idCentro = Auth::user()->id_centro;
@@ -66,65 +63,70 @@ class EstablecerTutorController extends Controller
 
         Tutor::create([
             'id_centro' => $idCentro,
-            'id_ciclo' => $request->id_ciclo,
-            'dni' => $request->dni,
+            'id_ciclo'  => $request->id_ciclo,
+            'dni'       => $request->dni,
         ]);
 
-        // Comando moosh para matricular a docente en tutor
-        /*$cohortName = "tutores_ciclo_{$request->id_ciclo}";
-        $comandoCohort = "moosh cohort-enrol -c " . escapeshellarg($request->dni) .
-                        " " . escapeshellarg($cohortName);
-                        
-        $this->ejecutarMoosh($comandoCohort);*/
+        $this->syncAddToCohort($moodle, $request->dni, "tutores_ciclo_{$request->id_ciclo}");
 
         return redirect()->route('establecer_tutor.index')->with('success', 'Tutor añadido correctamente.');
     }
 
-    public function destroy($id, Request $request)
+    public function destroy($id, Request $request, MoodleApiService $moodle)
     {
         $tutor = Tutor::findOrFail($id);
 
-        // Comando moosh para desmatricular de cohort tutor
-        /*$cohortName = "tutores_ciclo_{$request->id_ciclo}";
-        $commandTutor = "moosh cohort-unenrol -u " . escapeshellarg($tutor->dni) . 
-            " " . escapeshellarg($cohortName);
-
-        $this->ejecutarMoosh($commandTutor);*/
-        
-        // Verificar si también es coordinador en el mismo ciclo
         $esCoordinador = Coordinador::where('id_centro', $tutor->id_centro)
                     ->where('id_ciclo', $tutor->id_ciclo)
                     ->where('dni', $tutor->dni)
                     ->exists();
-        
-        // Si viene la opción de eliminar coordinador y efectivamente es coordinador
+
         if ($request->has('eliminar_coordinador') && $esCoordinador) {
             Coordinador::where('id_centro', $tutor->id_centro)
                 ->where('id_ciclo', $tutor->id_ciclo)
                 ->where('dni', $tutor->dni)
                 ->delete();
-            
-            // Comando moosh para desmatricular de cohort coordinador
-            /*$cohortName = "coordinadores_ciclo_{$request->id_ciclo}";
-            $commandCoordinador = "moosh cohort-unenrol -u " . escapeshellarg($tutor->dni) . 
-                " " . escapeshellarg($cohortName);
 
-            $this->ejecutarMoosh($commandCoordinador);*/
+            $this->syncRemoveFromCohort($moodle, $tutor->dni, "coordinadores_ciclo_{$tutor->id_ciclo}");
         }
-        
+
         $tutor->delete();
 
-        return redirect()->back()->with('success', 'Tutor eliminado correctamente' . 
+        $this->syncRemoveFromCohort($moodle, $tutor->dni, "tutores_ciclo_{$tutor->id_ciclo}");
+
+        return redirect()->back()->with('success', 'Tutor eliminado correctamente' .
             ($request->has('eliminar_coordinador') && $esCoordinador ? ' y también se ha eliminado como coordinador' : ''));
     }
 
-    //Ejecuta & Control de errores para comandos moosh
-    protected function ejecutarMoosh($command)
+    // ── Helpers de sync Moodle (fire-and-forget, sin afectar la respuesta) ──
+
+    private function syncAddToCohort(MoodleApiService $moodle, string $dni, string $cohort): void
     {
-        exec($command, $output, $status);
-        if ($status !== 0) {
-            Log::error("Fallo Moosh: " . implode("\n", $output));
-            throw new \Exception("Fallo al ejecutar comando Moosh.");
+        $docente = Docente::where('dni', $dni)->first();
+        if (! $docente?->is_procesado) {
+            return;
+        }
+        try {
+            $moodle->addToCohort($moodle->usernameFor($docente), $cohort);
+        } catch (Throwable $e) {
+            Log::channel('moodle_api')->error('Error sync add cohorte tutor', [
+                'dni' => $dni, 'cohort' => $cohort, 'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function syncRemoveFromCohort(MoodleApiService $moodle, string $dni, string $cohort): void
+    {
+        $docente = Docente::where('dni', $dni)->first();
+        if (! $docente?->is_procesado) {
+            return;
+        }
+        try {
+            $moodle->removeFromCohort($moodle->usernameFor($docente), $cohort);
+        } catch (Throwable $e) {
+            Log::channel('moodle_api')->error('Error sync remove cohorte tutor', [
+                'dni' => $dni, 'cohort' => $cohort, 'error' => $e->getMessage(),
+            ]);
         }
     }
 }
