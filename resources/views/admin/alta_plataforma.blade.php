@@ -91,7 +91,7 @@
                         :disabled="selected.length === 0"
                         :class="{ 'opacity-50 cursor-not-allowed': selected.length === 0 }"
                         @click="abrirExport()">
-                    <i class="fas fa-file-csv mr-2"></i>Generar CSVs
+                    <i class="fas fa-cloud-upload-alt mr-2"></i>Dar de alta en plataformas
                 </button>
             </div>
         </div>

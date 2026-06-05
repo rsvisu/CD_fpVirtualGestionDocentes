@@ -10,6 +10,7 @@ use App\Services\MoodleApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class EstablecerCoordinadorController extends Controller
@@ -71,34 +72,41 @@ class EstablecerCoordinadorController extends Controller
             }
         }
 
-        try {
-            DB::transaction(function () use ($request, $idCentro, $moodle) {
-                $docente = Docente::where('dni', $request->dni)->first();
+        $esTutor = $request->es_tutor == 1;
 
-                if ($request->es_tutor == 1) {
-                    Tutor::create([
-                        'id_centro' => $idCentro,
-                        'id_ciclo'  => $request->id_ciclo,
-                        'dni'       => $request->dni,
-                    ]);
-
-                    if ($docente?->is_procesado) {
-                        $moodle->addToCohort($moodle->usernameFor($docente), "tutores_ciclo_{$request->id_ciclo}");
-                    }
-                }
-
-                Coordinador::create([
+        DB::transaction(function () use ($request, $idCentro, $esTutor) {
+            if ($esTutor) {
+                Tutor::create([
                     'id_centro' => $idCentro,
                     'id_ciclo'  => $request->id_ciclo,
                     'dni'       => $request->dni,
                 ]);
+            }
+            Coordinador::create([
+                'id_centro' => $idCentro,
+                'id_ciclo'  => $request->id_ciclo,
+                'dni'       => $request->dni,
+            ]);
+        });
 
-                if ($docente?->is_procesado) {
-                    $moodle->addToCohort($moodle->usernameFor($docente), "coordinadores_ciclo_{$request->id_ciclo}");
+        $moodleWarning = null;
+        $docente = Docente::where('dni', $request->dni)->first();
+        if ($docente?->is_procesado) {
+            try {
+                if ($esTutor) {
+                    $moodle->addToCohort($moodle->usernameFor($docente), "tutores_ciclo_{$request->id_ciclo}");
                 }
-            });
-        } catch (Throwable $e) {
-            return redirect()->back()->withErrors(['error' => 'No se pudo añadir el coordinador: ' . $e->getMessage()]);
+                $moodle->addToCohort($moodle->usernameFor($docente), "coordinadores_ciclo_{$request->id_ciclo}");
+            } catch (Throwable $e) {
+                Log::channel('moodle_api')->error('Error añadiendo coordinador a cohorte Moodle', [
+                    'dni' => $request->dni, 'error' => $e->getMessage(),
+                ]);
+                $moodleWarning = 'Aviso: no se pudo sincronizar con Moodle (' . $e->getMessage() . '). El coordinador se guardó correctamente.';
+            }
+        }
+
+        if ($moodleWarning) {
+            return redirect()->route('establecer_coordinador.index')->with('success', 'Coordinador añadido correctamente.')->with('warning', $moodleWarning);
         }
 
         return redirect()->route('establecer_coordinador.index')->with('success', 'Coordinador añadido correctamente.');
@@ -113,32 +121,40 @@ class EstablecerCoordinadorController extends Controller
                     ->where('dni', $coordinador->dni)
                     ->exists();
 
-        try {
-            DB::transaction(function () use ($coordinador, $request, $esTutor, $moodle) {
-                $docente = Docente::where('dni', $coordinador->dni)->first();
+        $docente = Docente::where('dni', $coordinador->dni)->first();
+        $eliminarTutor = $request->has('eliminar_tutor') && $esTutor;
 
-                if ($request->has('eliminar_tutor') && $esTutor) {
-                    Tutor::where('id_centro', $coordinador->id_centro)
-                        ->where('id_ciclo', $coordinador->id_ciclo)
-                        ->where('dni', $coordinador->dni)
-                        ->delete();
+        DB::transaction(function () use ($coordinador, $eliminarTutor) {
+            if ($eliminarTutor) {
+                Tutor::where('id_centro', $coordinador->id_centro)
+                    ->where('id_ciclo', $coordinador->id_ciclo)
+                    ->where('dni', $coordinador->dni)
+                    ->delete();
+            }
+            $coordinador->delete();
+        });
 
-                    if ($docente?->is_procesado) {
-                        $moodle->removeFromCohort($moodle->usernameFor($docente), "tutores_ciclo_{$coordinador->id_ciclo}");
-                    }
+        $moodleWarning = null;
+        if ($docente?->is_procesado) {
+            try {
+                if ($eliminarTutor) {
+                    $moodle->removeFromCohort($moodle->usernameFor($docente), "tutores_ciclo_{$coordinador->id_ciclo}");
                 }
-
-                $coordinador->delete();
-
-                if ($docente?->is_procesado) {
-                    $moodle->removeFromCohort($moodle->usernameFor($docente), "coordinadores_ciclo_{$coordinador->id_ciclo}");
-                }
-            });
-        } catch (Throwable $e) {
-            return redirect()->back()->withErrors(['error' => 'No se pudo eliminar el coordinador: ' . $e->getMessage()]);
+                $moodle->removeFromCohort($moodle->usernameFor($docente), "coordinadores_ciclo_{$coordinador->id_ciclo}");
+            } catch (Throwable $e) {
+                Log::channel('moodle_api')->error('Error eliminando coordinador de cohorte Moodle', [
+                    'dni' => $coordinador->dni, 'error' => $e->getMessage(),
+                ]);
+                $moodleWarning = 'Aviso: no se pudo sincronizar con Moodle (' . $e->getMessage() . '). El coordinador se eliminó correctamente.';
+            }
         }
 
-        return redirect()->back()->with('success', 'Coordinador eliminado correctamente' .
-            ($request->has('eliminar_tutor') && $esTutor ? ' y también se ha eliminado como tutor' : ''));
+        $successMsg = 'Coordinador eliminado correctamente' . ($eliminarTutor ? ' y también se ha eliminado como tutor' : '');
+
+        if ($moodleWarning) {
+            return redirect()->back()->with('success', $successMsg)->with('warning', $moodleWarning);
+        }
+
+        return redirect()->back()->with('success', $successMsg);
     }
 }

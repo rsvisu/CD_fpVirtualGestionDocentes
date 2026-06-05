@@ -262,6 +262,12 @@
     border-left: 4px solid #f56565;
 }
 
+.alert-warning {
+    background-color: #fffbeb;
+    color: #92400e;
+    border-left: 4px solid #f59e0b;
+}
+
 .error-list {
     margin-top: 0em;
     padding-left: 1.5rem;

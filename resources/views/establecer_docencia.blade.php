@@ -18,6 +18,13 @@
                         </div>
                     @endif
 
+                    @if(session('warning'))
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            {{ session('warning') }}
+                        </div>
+                    @endif
+
                     @if ($errors->any())
                         <div class="alert alert-error">
                             <strong><i class="fas fa-exclamation-circle mr-2"></i>Error:</strong>
