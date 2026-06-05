@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\MoodleApiException;
+use App\Models\Centro;
 use App\Models\Coordinador;
 use App\Models\Docencia;
 use App\Models\Docente;
@@ -296,11 +297,15 @@ class MoodleApiService
         });
 
         Docencia::where('dni', $docente->dni)->each(function (Docencia $d) use ($username, $throwOnError) {
+            $shortname = $this->courseShortname($d->id_centro, $d->id_ciclo, $d->id_modulo);
+            if ($shortname === null) {
+                return;
+            }
             try {
-                $this->enrolInCourse($username, "modulo_{$d->id_modulo}");
+                $this->enrolInCourse($username, $shortname);
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error matriculando en curso', [
-                    'username' => $username, 'modulo' => $d->id_modulo, 'error' => $e->getMessage(),
+                    'username' => $username, 'course' => $shortname, 'error' => $e->getMessage(),
                 ]);
                 if ($throwOnError) throw $e;
             }
@@ -351,11 +356,15 @@ class MoodleApiService
         });
 
         $docenciaQuery->each(function (Docencia $d) use ($username, $throwOnError) {
+            $shortname = $this->courseShortname($d->id_centro, $d->id_ciclo, $d->id_modulo);
+            if ($shortname === null) {
+                return;
+            }
             try {
-                $this->unenrolFromCourse($username, "modulo_{$d->id_modulo}");
+                $this->unenrolFromCourse($username, $shortname);
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error desmatriculando de curso', [
-                    'username' => $username, 'modulo' => $d->id_modulo, 'error' => $e->getMessage(),
+                    'username' => $username, 'course' => $shortname, 'error' => $e->getMessage(),
                 ]);
                 if ($throwOnError) throw $e;
             }
@@ -363,6 +372,28 @@ class MoodleApiService
     }
 
     // ── Métodos privados ──────────────────────────────────────────────────────
+
+    /**
+     * Construye el shortname del curso Moodle para un módulo de un centro+ciclo.
+     * Formato: {centro.moodle_codigo}-{id_ciclo}-{id_modulo}
+     * Devuelve null (y loguea warning) si el centro no tiene moodle_codigo configurado.
+     */
+    private function courseShortname(string $idCentro, string $idCiclo, string $idModulo): ?string
+    {
+        $centro = Centro::find($idCentro);
+
+        if (empty($centro?->moodle_codigo)) {
+            Log::channel('moodle_api')->warning('Centro sin moodle_codigo, se omite matrícula en curso', [
+                'id_centro' => $idCentro,
+                'id_ciclo'  => $idCiclo,
+                'id_modulo' => $idModulo,
+            ]);
+
+            return null;
+        }
+
+        return "{$centro->moodle_codigo}-{$idCiclo}-{$idModulo}";
+    }
 
     /**
      * Lookup en Moodle por username usando core_user_get_users (criteria),

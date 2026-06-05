@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Centro;
 use App\Models\Docencia;
 use App\Models\Docente;
 use App\Models\Ciclo;
@@ -88,7 +89,10 @@ class EstablecerDocenciaController extends Controller
 
                 $docente = Docente::where('dni', $request->dni)->first();
                 if ($docente?->is_procesado) {
-                    $moodle->enrolInCourse($moodle->usernameFor($docente), "modulo_{$request->id_modulo}");
+                    $shortname = $this->courseShortname($idCentro, $request->id_ciclo, $request->id_modulo);
+                    if ($shortname !== null) {
+                        $moodle->enrolInCourse($moodle->usernameFor($docente), $shortname);
+                    }
                 }
             });
         } catch (Throwable $e) {
@@ -117,7 +121,10 @@ class EstablecerDocenciaController extends Controller
 
                 $docente = Docente::where('dni', $docencia->dni)->first();
                 if ($docente?->is_procesado) {
-                    $moodle->unenrolFromCourse($moodle->usernameFor($docente), "modulo_{$docencia->id_modulo}");
+                    $shortname = $this->courseShortname($docencia->id_centro, $docencia->id_ciclo, $docencia->id_modulo);
+                    if ($shortname !== null) {
+                        $moodle->unenrolFromCourse($moodle->usernameFor($docente), $shortname);
+                    }
                 }
             });
         } catch (Throwable $e) {
@@ -125,6 +132,16 @@ class EstablecerDocenciaController extends Controller
         }
 
         return redirect()->back()->with('success', 'Docencia eliminada correctamente.');
+    }
+
+    private function courseShortname(string $idCentro, string $idCiclo, string $idModulo): ?string
+    {
+        $moodle_codigo = Centro::find($idCentro)?->moodle_codigo;
+        if (empty($moodle_codigo)) {
+            return null;
+        }
+
+        return "{$moodle_codigo}-{$idCiclo}-{$idModulo}";
     }
 
     public function getModulosPorCiclo($id)

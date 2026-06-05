@@ -11,7 +11,7 @@ class Centro extends Model
     public $incrementing = false;
     protected $keyType = 'string';
 
-    protected $fillable = ['id_centro', 'nombre'];
+    protected $fillable = ['id_centro', 'nombre', 'moodle_codigo'];
 
     public function ciclos()
     {
