@@ -365,20 +365,25 @@ class MoodleApiService
     // ── Métodos privados ──────────────────────────────────────────────────────
 
     /**
-     * Lookup en Moodle por username. Devuelve el primer usuario encontrado o null.
+     * Lookup en Moodle por username usando core_user_get_users (criteria),
+     * que solo requiere moodle/user:viewdetails a diferencia de
+     * core_user_get_users_by_field que exige moodle/user:viewuseridentity.
      */
     private function findUserByUsername(string $username): ?array
     {
-        $response = $this->request('core_user_get_users_by_field', [
-            'field'     => 'username',
-            'values[0]' => $username,
+        $response = $this->request('core_user_get_users', [
+            'criteria[0][key]'   => 'username',
+            'criteria[0][value]' => $username,
         ]);
 
-        if (! is_array($response) || $response === []) {
+        // core_user_get_users devuelve {"users": [...], "warnings": [...]}
+        $users = is_array($response) ? ($response['users'] ?? $response) : [];
+
+        if (empty($users)) {
             return null;
         }
 
-        return $response[0] ?? null;
+        return $users[0] ?? null;
     }
 
     /**

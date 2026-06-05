@@ -98,8 +98,8 @@ function fakeByWsFunction(array $byFunction): void
 test('M1 - crea un docente nuevo en Moodle y lo marca como procesado', function () {
     configureMoodle();
     fakeByWsFunction([
-        'core_user_get_users_by_field' => fn () => Http::response([], 200),
-        'core_user_create_users'       => fn () => Http::response([['id' => 101, 'username' => 'prof']], 200),
+        'core_user_get_users' => fn () => Http::response(['users' => [], 'warnings' => []], 200),
+        'core_user_create_users' => fn () => Http::response([['id' => 101, 'username' => 'prof']], 200),
     ]);
 
     $d = mDocente(['dni' => '11111111A']);
@@ -123,8 +123,8 @@ test('M1 - crea un docente nuevo en Moodle y lo marca como procesado', function 
 test('M2 - el payload enviado a create_users usa auth=manual, contrasena changeme y fuerza cambio', function () {
     configureMoodle();
     fakeByWsFunction([
-        'core_user_get_users_by_field' => fn () => Http::response([], 200),
-        'core_user_create_users'       => fn () => Http::response([['id' => 1]], 200),
+        'core_user_get_users'    => fn () => Http::response(['users' => [], 'warnings' => []], 200),
+        'core_user_create_users' => fn () => Http::response([['id' => 1]], 200),
     ]);
 
     $d = mDocente(['dni' => '22222222B', 'nombre' => 'Ada', 'apellido' => 'Lovelace']);
@@ -151,7 +151,7 @@ test('M2 - el payload enviado a create_users usa auth=manual, contrasena changem
 test('M3 - si el usuario ya existe en Moodle, no se llama a create_users y queda procesado', function () {
     configureMoodle();
     fakeByWsFunction([
-        'core_user_get_users_by_field' => fn () => Http::response([['id' => 7, 'username' => 'prof33333333c']], 200),
+        'core_user_get_users' => fn () => Http::response(['users' => [['id' => 7, 'username' => 'prof33333333c']], 'warnings' => []], 200),
     ]);
 
     $d = mDocente(['dni' => '33333333C']);
@@ -178,8 +178,8 @@ test('M3 - si el usuario ya existe en Moodle, no se llama a create_users y queda
 test('M4 - si Moodle devuelve excepcion, el docente queda en failed y no se procesa', function () {
     configureMoodle();
     fakeByWsFunction([
-        'core_user_get_users_by_field' => fn () => Http::response([], 200),
-        'core_user_create_users'       => fn () => Http::response([
+        'core_user_get_users'    => fn () => Http::response(['users' => [], 'warnings' => []], 200),
+        'core_user_create_users' => fn () => Http::response([
             'exception' => 'moodle_exception',
             'errorcode' => 'invalidemail',
             'message'   => 'Email no valido',
@@ -203,7 +203,7 @@ test('M4 - si Moodle devuelve excepcion, el docente queda en failed y no se proc
 test('M5 - si Moodle devuelve HTTP 500, el docente queda en failed', function () {
     configureMoodle();
     fakeByWsFunction([
-        'core_user_get_users_by_field' => fn () => Http::response('Internal error', 500),
+        'core_user_get_users' => fn () => Http::response('Internal error', 500),
     ]);
 
     $d = mDocente(['dni' => '55555555E']);
@@ -225,18 +225,12 @@ test('M6 - lote mixto: created + skipped + failed coexisten correctamente', func
     Http::fake(function ($request) {
         $body = (string) $request->body();
 
-        if (str_contains($body, 'wsfunction=core_user_get_users_by_field')) {
-            if (str_contains($body, 'profaaaaaaaa1')) {
-                return Http::response([], 200);
-            }
+        if (str_contains($body, 'wsfunction=core_user_get_users')) {
             if (str_contains($body, 'profbbbbbbbb2')) {
-                return Http::response([['id' => 9, 'username' => 'profbbbbbbbb2']], 200);
-            }
-            if (str_contains($body, 'profcccccccc3')) {
-                return Http::response([], 200);
+                return Http::response(['users' => [['id' => 9, 'username' => 'profbbbbbbbb2']], 'warnings' => []], 200);
             }
 
-            return Http::response([], 200);
+            return Http::response(['users' => [], 'warnings' => []], 200);
         }
 
         if (str_contains($body, 'wsfunction=core_user_create_users')) {
@@ -332,15 +326,15 @@ test('M9 - tras crear en Moodle se llama a addToCohort y enrolInCourse segun rol
     Http::fake(function ($request) use (&$cohortCalls, &$courseCalls, &$lookupCallCount) {
         $body = (string) $request->body();
 
-        if (str_contains($body, 'wsfunction=core_user_get_users_by_field')) {
+        if (str_contains($body, 'wsfunction=core_user_get_users')) {
             $lookupCallCount++;
             // 1ª llamada: idempotency check en createUsers → usuario no existe → se crea
             // Llamadas posteriores: findMoodleUserId en enrolInCourse → usuario ya existe
             if ($lookupCallCount === 1) {
-                return Http::response([], 200);
+                return Http::response(['users' => [], 'warnings' => []], 200);
             }
 
-            return Http::response([['id' => 42, 'username' => 'prof88888888h']], 200);
+            return Http::response(['users' => [['id' => 42, 'username' => 'prof88888888h']], 'warnings' => []], 200);
         }
         if (str_contains($body, 'wsfunction=core_user_create_users')) {
             return Http::response([['id' => 42, 'username' => 'prof88888888h']], 200);
@@ -383,8 +377,8 @@ test('M10 - suspendUser llama a core_user_update_users con suspended=1', functio
 
     Http::fake(function ($request) {
         $body = (string) $request->body();
-        if (str_contains($body, 'wsfunction=core_user_get_users_by_field')) {
-            return Http::response([['id' => 55, 'username' => 'proftest']], 200);
+        if (str_contains($body, 'wsfunction=core_user_get_users')) {
+            return Http::response(['users' => [['id' => 55, 'username' => 'proftest']], 'warnings' => []], 200);
         }
 
         return Http::response(null, 200);
@@ -405,8 +399,8 @@ test('M10b - unsuspendUser llama a core_user_update_users con suspended=0', func
 
     Http::fake(function ($request) {
         $body = (string) $request->body();
-        if (str_contains($body, 'wsfunction=core_user_get_users_by_field')) {
-            return Http::response([['id' => 55, 'username' => 'proftest']], 200);
+        if (str_contains($body, 'wsfunction=core_user_get_users')) {
+            return Http::response(['users' => [['id' => 55, 'username' => 'proftest']], 'warnings' => []], 200);
         }
 
         return Http::response(null, 200);
