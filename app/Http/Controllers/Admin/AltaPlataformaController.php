@@ -7,6 +7,8 @@ use App\Models\CentroDocente;
 use App\Models\Docente;
 use App\Services\MoodleApiService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class AltaPlataformaController extends Controller
 {
@@ -214,16 +216,32 @@ class AltaPlataformaController extends Controller
         if ($dnisProcesados !== []) {
             Docente::whereIn('dni', $dnisProcesados)
                 ->update([
-                    'is_procesado' => true,
+                    'is_procesado'    => true,
                     'fecha_procesado' => now(),
                 ]);
         }
 
+        // Matricular en cohortes/cursos a los docentes recién creados
+        foreach ($resumen['created'] as $dni) {
+            $docente = $docentes->firstWhere('dni', $dni);
+            if ($docente === null) {
+                continue;
+            }
+            try {
+                $moodle->enrollDocente($docente);
+            } catch (Throwable $e) {
+                Log::channel('moodle_api')->error('Error matriculando docente tras alta', [
+                    'dni'   => $dni,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         return response()->json([
-            'ok' => $resumen['failed'] === [],
+            'ok'      => $resumen['failed'] === [],
             'created' => $resumen['created'],
             'skipped' => $resumen['skipped'],
-            'failed' => $resumen['failed'],
+            'failed'  => $resumen['failed'],
         ]);
     }
 }
