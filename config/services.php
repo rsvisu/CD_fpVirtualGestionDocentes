@@ -36,11 +36,13 @@ return [
     ],
 
     'moodle' => [
-        'url'     => env('MOODLE_URL'),
-        'token'   => env('MOODLE_TOKEN'),
-        'auth'    => env('MOODLE_USER_AUTH', 'oauth2'),
-        'lang'    => env('MOODLE_USER_LANG', 'es'),
-        'timeout' => (int) env('MOODLE_TIMEOUT', 15),
+        'url'              => env('MOODLE_URL'),
+        'token'            => env('MOODLE_TOKEN'),
+        'auth'             => env('MOODLE_USER_AUTH', 'manual'),
+        'default_password' => env('MOODLE_DEFAULT_PASSWORD', 'changeme'),
+        'lang'             => env('MOODLE_USER_LANG', 'es'),
+        'timeout'          => (int) env('MOODLE_TIMEOUT', 15),
+        'teacher_role_id'  => (int) env('MOODLE_TEACHER_ROLE_ID', 3),
     ],
 
 ];
