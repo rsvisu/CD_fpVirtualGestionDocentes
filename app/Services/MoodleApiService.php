@@ -67,7 +67,8 @@ class MoodleApiService
                     continue;
                 }
 
-                $this->createUser($docente);
+                $moodleId = $this->createUser($docente);
+                Docente::where('dni', $dni)->update(['moodle_user_id' => $moodleId]);
                 $resumen['created'][] = $dni;
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Alta fallida', [
@@ -413,10 +414,19 @@ class MoodleApiService
     }
 
     /**
-     * Devuelve el ID numérico de Moodle para un username dado.
+     * Devuelve el ID numérico del usuario en Moodle.
+     * Primero comprueba si lo tenemos en BD (guardado al crear el usuario);
+     * si no, recurre a la búsqueda por API.
      */
     private function findMoodleUserId(string $username): ?int
     {
+        // El username es "prof" + lowercase(DNI) → recuperamos el Docente por DNI
+        $dni = strtoupper(substr($username, 4));
+        $stored = Docente::where('dni', $dni)->value('moodle_user_id');
+        if ($stored !== null) {
+            return (int) $stored;
+        }
+
         $user = $this->findUserByUsername($username);
 
         return isset($user['id']) ? (int) $user['id'] : null;

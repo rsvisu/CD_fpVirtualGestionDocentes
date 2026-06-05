@@ -14,7 +14,7 @@ class Docente extends Model
     // Especificamos qué campos son asignables masivamente
     protected $fillable = [
         'dni', 'nombre', 'apellido', 'email_virtual', 'formacion',
-        'de_baja', 'is_procesado', 'fecha_procesado',
+        'de_baja', 'is_procesado', 'fecha_procesado', 'moodle_user_id',
     ];
 
     protected $casts = [
