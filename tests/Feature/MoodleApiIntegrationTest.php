@@ -311,7 +311,7 @@ test('M8 - un docente de baja se ignora antes de llamar a Moodle', function () {
 test('M9 - tras crear en Moodle se llama a addToCohort y enrolInCourse segun roles del docente', function () {
     configureMoodle();
 
-    $centro  = Centro::forceCreate(['id_centro' => 'MTC01', 'nombre' => 'Centro Moodle Test', 'moodle_codigo' => '50020125']);
+    $centro  = Centro::forceCreate(['id_centro' => 'MTC01', 'nombre' => 'Centro Moodle Test']);
     $ciclo   = Ciclo::forceCreate(['id_ciclo' => 'IFC201', 'nombre' => 'Ciclo Test']);
     $modulo  = Modulo::forceCreate(['id_modulo' => 'MOD01', 'nombre' => 'Modulo Test']);
     $docente = mDocente(['dni' => '88888888H']);
@@ -366,9 +366,9 @@ test('M9 - tras crear en Moodle se llama a addToCohort y enrolInCourse segun rol
     $allCohortBodies = implode(' ', $cohortCalls);
     expect($allCohortBodies)->toContain('tutores_ciclo_IFC201');
 
-    // shortname: {moodle_codigo}-{id_ciclo}-{id_modulo} = 50020125-IFC201-MOD01
+    // shortname: {id_centro}-{id_ciclo}-{id_modulo} = MTC01-IFC201-MOD01
     $allCourseBodies = implode(' ', $courseCalls);
-    expect($allCourseBodies)->toContain('50020125-IFC201-MOD01');
+    expect($allCourseBodies)->toContain('MTC01-IFC201-MOD01');
 });
 
 // M10 -- suspendUser y unsuspendUser

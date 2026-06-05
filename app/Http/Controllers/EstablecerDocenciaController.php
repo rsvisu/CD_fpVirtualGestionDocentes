@@ -89,10 +89,10 @@ class EstablecerDocenciaController extends Controller
 
                 $docente = Docente::where('dni', $request->dni)->first();
                 if ($docente?->is_procesado) {
-                    $shortname = $this->courseShortname($idCentro, $request->id_ciclo, $request->id_modulo);
-                    if ($shortname !== null) {
-                        $moodle->enrolInCourse($moodle->usernameFor($docente), $shortname);
-                    }
+                    $moodle->enrolInCourse(
+                        $moodle->usernameFor($docente),
+                        $this->courseShortname($idCentro, $request->id_ciclo, $request->id_modulo)
+                    );
                 }
             });
         } catch (Throwable $e) {
@@ -121,10 +121,10 @@ class EstablecerDocenciaController extends Controller
 
                 $docente = Docente::where('dni', $docencia->dni)->first();
                 if ($docente?->is_procesado) {
-                    $shortname = $this->courseShortname($docencia->id_centro, $docencia->id_ciclo, $docencia->id_modulo);
-                    if ($shortname !== null) {
-                        $moodle->unenrolFromCourse($moodle->usernameFor($docente), $shortname);
-                    }
+                    $moodle->unenrolFromCourse(
+                        $moodle->usernameFor($docente),
+                        $this->courseShortname($docencia->id_centro, $docencia->id_ciclo, $docencia->id_modulo)
+                    );
                 }
             });
         } catch (Throwable $e) {
@@ -134,14 +134,14 @@ class EstablecerDocenciaController extends Controller
         return redirect()->back()->with('success', 'Docencia eliminada correctamente.');
     }
 
-    private function courseShortname(string $idCentro, string $idCiclo, string $idModulo): ?string
+    private function courseShortname(string $idCentro, string $idCiclo, string $idModulo): string
     {
-        $moodle_codigo = Centro::find($idCentro)?->moodle_codigo;
-        if (empty($moodle_codigo)) {
-            return null;
-        }
+        $centro = Centro::find($idCentro);
+        $codigo = ($centro && ! empty($centro->moodle_codigo))
+            ? $centro->moodle_codigo
+            : $idCentro;
 
-        return "{$moodle_codigo}-{$idCiclo}-{$idModulo}";
+        return "{$codigo}-{$idCiclo}-{$idModulo}";
     }
 
     public function getModulosPorCiclo($id)

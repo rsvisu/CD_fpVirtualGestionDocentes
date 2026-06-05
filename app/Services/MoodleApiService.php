@@ -374,25 +374,20 @@ class MoodleApiService
     // ── Métodos privados ──────────────────────────────────────────────────────
 
     /**
-     * Construye el shortname del curso Moodle para un módulo de un centro+ciclo.
-     * Formato: {centro.moodle_codigo}-{id_ciclo}-{id_modulo}
-     * Devuelve null (y loguea warning) si el centro no tiene moodle_codigo configurado.
+     * Construye el shortname del curso Moodle: {codigo_centro}-{id_ciclo}-{id_modulo}
+     *
+     * id_centro en la BD coincide con el primer segmento del shortname de Moodle
+     * (ej: "22002491-SSC201-5382"), ya que el seeder lo extrae directamente del CSV.
+     * Si el centro tiene moodle_codigo configurado explícitamente se usa ese valor.
      */
-    private function courseShortname(string $idCentro, string $idCiclo, string $idModulo): ?string
+    private function courseShortname(string $idCentro, string $idCiclo, string $idModulo): string
     {
         $centro = Centro::find($idCentro);
+        $codigo = ($centro && ! empty($centro->moodle_codigo))
+            ? $centro->moodle_codigo
+            : $idCentro;
 
-        if (empty($centro?->moodle_codigo)) {
-            Log::channel('moodle_api')->warning('Centro sin moodle_codigo, se omite matrícula en curso', [
-                'id_centro' => $idCentro,
-                'id_ciclo'  => $idCiclo,
-                'id_modulo' => $idModulo,
-            ]);
-
-            return null;
-        }
-
-        return "{$centro->moodle_codigo}-{$idCiclo}-{$idModulo}";
+        return "{$codigo}-{$idCiclo}-{$idModulo}";
     }
 
     /**
