@@ -22,7 +22,7 @@ Variables de entorno necesarias en `.env`:
 MOODLE_URL=https://moodle.fpvirtualaragon.es
 MOODLE_TOKEN=<wstoken del servicio web>
 MOODLE_USER_AUTH=manual
-MOODLE_DEFAULT_PASSWORD=changeme
+MOODLE_DEFAULT_PASSWORD=Camb!am3
 MOODLE_USER_LANG=es
 MOODLE_TIMEOUT=15
 MOODLE_TEACHER_ROLE_ID=3
@@ -33,7 +33,7 @@ MOODLE_TEACHER_ROLE_ID=3
 | `MOODLE_URL` | URL base de la instancia Moodle | — (requerido) |
 | `MOODLE_TOKEN` | Token del Web Service (`wstoken`) | — (requerido) |
 | `MOODLE_USER_AUTH` | Plugin de autenticación para usuarios nuevos | `manual` |
-| `MOODLE_DEFAULT_PASSWORD` | Contraseña inicial. El usuario debe cambiarla en el primer login | `changeme` |
+| `MOODLE_DEFAULT_PASSWORD` | Contraseña inicial (mín. 1 mayúscula, 1 dígito, 1 carácter especial). El usuario debe cambiarla en el primer login | `Camb!am3` |
 | `MOODLE_USER_LANG` | Idioma de la interfaz del usuario en Moodle | `es` |
 | `MOODLE_TIMEOUT` | Timeout HTTP en segundos | `15` |
 | `MOODLE_TEACHER_ROLE_ID` | ID del rol "editingteacher" en la instancia Moodle | `3` |
@@ -43,7 +43,7 @@ MOODLE_TEACHER_ROLE_ID=3
 ## Conceptos clave de Moodle
 
 ### Usuarios
-Cada docente tiene un usuario en Moodle. El username sigue la convención `prof` + DNI en minúsculas (ej: `prof12345678a`). Se crea con autenticación `manual` y contraseña `changeme` con forzado de cambio en el primer login.
+Cada docente tiene un usuario en Moodle. El username sigue la convención `prof` + DNI en minúsculas (ej: `prof12345678a`). Se crea con autenticación `manual` y contraseña `Camb!am3` con forzado de cambio en el primer login.
 
 El campo `docentes.is_procesado` en la BD local indica si el docente ya tiene cuenta en Moodle.
 
@@ -73,7 +73,7 @@ sequenceDiagram
     App->>Moodle: core_user_get_users_by_field (¿ya existe?)
     alt Usuario no existe
         Moodle-->>App: []
-        App->>Moodle: core_user_create_users (auth=manual, password=changeme, forzar cambio)
+        App->>Moodle: core_user_create_users (auth=manual, password=Camb!am3, forzar cambio)
         Moodle-->>App: [{id: 42}]
         App->>BD: is_procesado=true, fecha_procesado=now()
         App->>Moodle: core_cohort_add_cohort_members (tutores/coordinadores)
