@@ -2,7 +2,7 @@
 
 Aplicación para la gestión del profesorado en FP virtual en Aragón
 
-> Para levantar el proyecto en local ver [DESARROLLO.md](./DESARROLLO.md).
+> Para levantar el proyecto en local ver [DESARROLLO.md](./docs/DESARROLLO.md).
 
 ## Descripción
 
