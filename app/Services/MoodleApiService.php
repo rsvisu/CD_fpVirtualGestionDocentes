@@ -264,55 +264,62 @@ class MoodleApiService
 
     /**
      * Matricula al docente en todas sus cohortes y cursos según la BD.
-     * Errores por matrícula individual se loguean sin abortar el conjunto.
+     *
+     * @param  bool  $throwOnError  Si es true, lanza la primera excepción de Moodle que
+     *                              ocurra (útil para revertir transacciones). Si es false
+     *                              (por defecto), loguea el error y continúa.
      */
-    public function enrollDocente(Docente $docente): void
+    public function enrollDocente(Docente $docente, bool $throwOnError = false): void
     {
         $username = $this->usernameFor($docente);
 
-        Tutor::where('dni', $docente->dni)->each(function (Tutor $t) use ($username) {
+        Tutor::where('dni', $docente->dni)->each(function (Tutor $t) use ($username, $throwOnError) {
             try {
                 $this->addToCohort($username, "tutores_ciclo_{$t->id_ciclo}");
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error añadiendo a cohorte tutor', [
                     'username' => $username, 'ciclo' => $t->id_ciclo, 'error' => $e->getMessage(),
                 ]);
+                if ($throwOnError) throw $e;
             }
         });
 
-        Coordinador::where('dni', $docente->dni)->each(function (Coordinador $c) use ($username) {
+        Coordinador::where('dni', $docente->dni)->each(function (Coordinador $c) use ($username, $throwOnError) {
             try {
                 $this->addToCohort($username, "coordinadores_ciclo_{$c->id_ciclo}");
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error añadiendo a cohorte coordinador', [
                     'username' => $username, 'ciclo' => $c->id_ciclo, 'error' => $e->getMessage(),
                 ]);
+                if ($throwOnError) throw $e;
             }
         });
 
-        Docencia::where('dni', $docente->dni)->each(function (Docencia $d) use ($username) {
+        Docencia::where('dni', $docente->dni)->each(function (Docencia $d) use ($username, $throwOnError) {
             try {
                 $this->enrolInCourse($username, "modulo_{$d->id_modulo}");
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error matriculando en curso', [
                     'username' => $username, 'modulo' => $d->id_modulo, 'error' => $e->getMessage(),
                 ]);
+                if ($throwOnError) throw $e;
             }
         });
     }
 
     /**
      * Desmatricula al docente de todas sus cohortes y cursos según la BD.
-     * Útil durante la baja: llamar antes de suspender.
      *
-     * @param  string|null  $idCentro  Si se pasa, solo desmatricula los roles de ese centro.
+     * @param  string|null  $idCentro     Si se pasa, solo desmatricula los roles de ese centro.
+     * @param  bool         $throwOnError Si es true, lanza la primera excepción de Moodle
+     *                                    (para revertir transacciones). Si false, loguea y continúa.
      */
-    public function unenrolDocente(Docente $docente, ?string $idCentro = null): void
+    public function unenrolDocente(Docente $docente, ?string $idCentro = null, bool $throwOnError = false): void
     {
         $username = $this->usernameFor($docente);
 
-        $tutorQuery = Tutor::where('dni', $docente->dni);
-        $coordQuery = Coordinador::where('dni', $docente->dni);
+        $tutorQuery    = Tutor::where('dni', $docente->dni);
+        $coordQuery    = Coordinador::where('dni', $docente->dni);
         $docenciaQuery = Docencia::where('dni', $docente->dni);
 
         if ($idCentro !== null) {
@@ -321,33 +328,36 @@ class MoodleApiService
             $docenciaQuery->where('id_centro', $idCentro);
         }
 
-        $tutorQuery->each(function (Tutor $t) use ($username) {
+        $tutorQuery->each(function (Tutor $t) use ($username, $throwOnError) {
             try {
                 $this->removeFromCohort($username, "tutores_ciclo_{$t->id_ciclo}");
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error eliminando de cohorte tutor', [
                     'username' => $username, 'ciclo' => $t->id_ciclo, 'error' => $e->getMessage(),
                 ]);
+                if ($throwOnError) throw $e;
             }
         });
 
-        $coordQuery->each(function (Coordinador $c) use ($username) {
+        $coordQuery->each(function (Coordinador $c) use ($username, $throwOnError) {
             try {
                 $this->removeFromCohort($username, "coordinadores_ciclo_{$c->id_ciclo}");
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error eliminando de cohorte coordinador', [
                     'username' => $username, 'ciclo' => $c->id_ciclo, 'error' => $e->getMessage(),
                 ]);
+                if ($throwOnError) throw $e;
             }
         });
 
-        $docenciaQuery->each(function (Docencia $d) use ($username) {
+        $docenciaQuery->each(function (Docencia $d) use ($username, $throwOnError) {
             try {
                 $this->unenrolFromCourse($username, "modulo_{$d->id_modulo}");
             } catch (Throwable $e) {
                 Log::channel('moodle_api')->error('Error desmatriculando de curso', [
                     'username' => $username, 'modulo' => $d->id_modulo, 'error' => $e->getMessage(),
                 ]);
+                if ($throwOnError) throw $e;
             }
         });
     }

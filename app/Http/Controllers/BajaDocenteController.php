@@ -48,34 +48,26 @@ class BajaDocenteController extends Controller
             $dniUpper = strtoupper($dni);
             $docente = Docente::where('dni', $dniUpper)->firstOrFail();
 
+            $docente->de_baja = true;
+            $docente->save();
+
             // ── Sincronización con Moodle ────────────────────────────────────
+            // throwOnError=true: si la API falla, lanza excepción → rollback automático
+            // y el usuario ve el error (la baja NO se confirma).
             if ($docente->is_procesado) {
                 $username = $moodle->usernameFor($docente);
 
-                try {
-                    // Desmatricular de todos los roles de ESTE centro
-                    $moodle->unenrolDocente($docente, $idCentro);
+                $moodle->unenrolDocente($docente, $idCentro, throwOnError: true);
 
-                    // Suspender solo si no tiene otros centros activos
-                    $tieneOtrosCentros = CentroDocente::where('dni', $dniUpper)
-                        ->where('id_centro', '!=', $idCentro)
-                        ->whereHas('docente', fn ($q) => $q->where('de_baja', false))
-                        ->exists();
+                $tieneOtrosCentros = CentroDocente::where('dni', $dniUpper)
+                    ->where('id_centro', '!=', $idCentro)
+                    ->whereHas('docente', fn ($q) => $q->where('de_baja', false))
+                    ->exists();
 
-                    if (! $tieneOtrosCentros) {
-                        $moodle->suspendUser($username);
-                    }
-                } catch (Throwable $e) {
-                    // Error en Moodle no aborta la baja en BD
-                    Log::channel('moodle_api')->error('Error al dar de baja en Moodle', [
-                        'dni'   => $dniUpper,
-                        'error' => $e->getMessage(),
-                    ]);
+                if (! $tieneOtrosCentros) {
+                    $moodle->suspendUser($username);
                 }
             }
-
-            $docente->de_baja = true;
-            $docente->save();
 
             DB::commit();
 
@@ -115,20 +107,14 @@ class BajaDocenteController extends Controller
 
             $docente->update(['de_baja' => false]);
 
-            DB::commit();
-
             // ── Sincronización con Moodle ────────────────────────────────────
+            // throwOnError=true: si Moodle falla, lanza excepción → rollback automático.
             if ($docente->is_procesado) {
-                try {
-                    $moodle->unsuspendUser($moodle->usernameFor($docente));
-                    $moodle->enrollDocente($docente);
-                } catch (Throwable $e) {
-                    Log::channel('moodle_api')->error('Error al reactivar en Moodle', [
-                        'dni'   => $dniUpper,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                $moodle->unsuspendUser($moodle->usernameFor($docente));
+                $moodle->enrollDocente($docente, throwOnError: true);
             }
+
+            DB::commit();
 
             Log::channel('bajas_docentes')->notice('Docente reactivado', [
                 'dni_docente'  => $dniUpper,

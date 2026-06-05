@@ -10,7 +10,7 @@ use App\Models\DocenteCicloModulo;
 use App\Services\MoodleApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Throwable;
 
@@ -77,14 +77,23 @@ class EstablecerDocenciaController extends Controller
 
         $idCentro = Auth::user()->id_centro;
 
-        $this->model::create([
-            'id_centro' => $idCentro,
-            'id_ciclo'  => $request->id_ciclo,
-            'id_modulo' => $request->id_modulo,
-            'dni'       => $request->dni,
-        ]);
+        try {
+            DB::transaction(function () use ($request, $idCentro, $moodle) {
+                $this->model::create([
+                    'id_centro' => $idCentro,
+                    'id_ciclo'  => $request->id_ciclo,
+                    'id_modulo' => $request->id_modulo,
+                    'dni'       => $request->dni,
+                ]);
 
-        $this->syncEnrolInCourse($moodle, $request->dni, "modulo_{$request->id_modulo}");
+                $docente = Docente::where('dni', $request->dni)->first();
+                if ($docente?->is_procesado) {
+                    $moodle->enrolInCourse($moodle->usernameFor($docente), "modulo_{$request->id_modulo}");
+                }
+            });
+        } catch (Throwable $e) {
+            return redirect()->route('establecer_docencia.index')->withErrors(['error' => 'No se pudo asignar la docencia: ' . $e->getMessage()]);
+        }
 
         $existe = Docencia::where('id_centro', $idCentro)
             ->where('id_ciclo', $request->id_ciclo)
@@ -101,9 +110,19 @@ class EstablecerDocenciaController extends Controller
     public function destroy($id, MoodleApiService $moodle)
     {
         $docencia = Docencia::findOrFail($id);
-        $docencia->delete();
 
-        $this->syncUnenrolFromCourse($moodle, $docencia->dni, "modulo_{$docencia->id_modulo}");
+        try {
+            DB::transaction(function () use ($docencia, $moodle) {
+                $docencia->delete();
+
+                $docente = Docente::where('dni', $docencia->dni)->first();
+                if ($docente?->is_procesado) {
+                    $moodle->unenrolFromCourse($moodle->usernameFor($docente), "modulo_{$docencia->id_modulo}");
+                }
+            });
+        } catch (Throwable $e) {
+            return redirect()->back()->withErrors(['error' => 'No se pudo eliminar la docencia: ' . $e->getMessage()]);
+        }
 
         return redirect()->back()->with('success', 'Docencia eliminada correctamente.');
     }
@@ -117,37 +136,5 @@ class EstablecerDocenciaController extends Controller
             ->get();
 
         return response()->json($modulos);
-    }
-
-    // ── Helpers de sync Moodle (fire-and-forget, sin afectar la respuesta) ──
-
-    private function syncEnrolInCourse(MoodleApiService $moodle, string $dni, string $course): void
-    {
-        $docente = Docente::where('dni', $dni)->first();
-        if (! $docente?->is_procesado) {
-            return;
-        }
-        try {
-            $moodle->enrolInCourse($moodle->usernameFor($docente), $course);
-        } catch (Throwable $e) {
-            Log::channel('moodle_api')->error('Error sync matrícula en curso', [
-                'dni' => $dni, 'course' => $course, 'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    private function syncUnenrolFromCourse(MoodleApiService $moodle, string $dni, string $course): void
-    {
-        $docente = Docente::where('dni', $dni)->first();
-        if (! $docente?->is_procesado) {
-            return;
-        }
-        try {
-            $moodle->unenrolFromCourse($moodle->usernameFor($docente), $course);
-        } catch (Throwable $e) {
-            Log::channel('moodle_api')->error('Error sync desmatrícula de curso', [
-                'dni' => $dni, 'course' => $course, 'error' => $e->getMessage(),
-            ]);
-        }
     }
 }

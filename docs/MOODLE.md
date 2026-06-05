@@ -60,45 +60,93 @@ Cada módulo formativo tiene un curso en Moodle. Los docentes que imparten ese m
 
 ## Flujo de datos
 
+### Alta de un docente
+
+```mermaid
+sequenceDiagram
+    actor Admin
+    participant App
+    participant BD as BD local
+    participant Moodle
+
+    Admin->>App: POST /admin/alta-plataforma/procesar
+    App->>Moodle: core_user_get_users_by_field (¿ya existe?)
+    alt Usuario no existe
+        Moodle-->>App: []
+        App->>Moodle: core_user_create_users (auth=manual, password=changeme, forzar cambio)
+        Moodle-->>App: [{id: 42}]
+        App->>BD: is_procesado=true, fecha_procesado=now()
+        App->>Moodle: core_cohort_add_cohort_members (tutores/coordinadores)
+        App->>Moodle: enrol_manual_enrol_users (módulos)
+    else Usuario ya existe (idempotente)
+        Moodle-->>App: [{id: X}]
+        App->>BD: is_procesado=true (skipped)
+        Note over App,Moodle: No se re-matricula si ya estaba en Moodle
+    end
+    App-->>Admin: {ok, created[], skipped[], failed{}}
 ```
-BD local (app)                       Moodle (API REST)
-══════════════════════════           ══════════════════════════════════
 
-ALTA (/admin/alta-plataforma)
-──────────────────────────────
-Docente (dni, nombre, email)    ──►  core_user_create_users
-  is_procesado = false               → username: profDNI
-  → tras alta: true                  → auth: manual, password: changeme
-                                     → preferencia: forzar cambio contraseña
+### Asignación de roles en tiempo real
 
-Tutor (dni, id_ciclo)           ──►  core_cohort_add_cohort_members
-                                     → cohorte: tutores_ciclo_{id_ciclo}
+Solo se ejecuta si `docentes.is_procesado = true`.
 
-Coordinador (dni, id_ciclo)     ──►  core_cohort_add_cohort_members
-                                     → cohorte: coordinadores_ciclo_{id_ciclo}
+```mermaid
+flowchart LR
+    A[Centro asigna tutor/coordinador/docencia] --> B{is_procesado?}
+    B -- No --> C[Solo guarda en BD local\nSe sincronizará al dar de alta]
+    B -- Sí --> D[Guarda en BD local]
+    D --> E[Llama a Moodle API]
+    E --> F{¿Éxito?}
+    F -- Sí --> G[Sincronizado]
+    F -- No --> H[Log ERROR\nBD ya tiene el cambio]
+```
 
-Docencia (dni, id_modulo)       ──►  enrol_manual_enrol_users
-                                     → curso: modulo_{id_modulo}
-                                     → rol: editingteacher (id=3)
+### Baja de un docente
 
-ASIGNACIÓN DE ROLES (tiempo real, solo si is_procesado=true)
-──────────────────────────────────────────────────────────────
-Nuevo tutor/coordinador         ──►  core_cohort_add_cohort_members
-Eliminar tutor/coordinador      ──►  core_cohort_delete_cohort_members
-Nueva docencia                  ──►  enrol_manual_enrol_users
-Eliminar docencia               ──►  enrol_manual_unenrol_users
+```mermaid
+sequenceDiagram
+    actor Usuario as Usuario del centro
+    participant App
+    participant BD as BD local
+    participant Moodle
 
-BAJA (/docentes/baja)
-──────────────────────
-de_baja = true                  ──►  Desmatricula de cohortes del centro
-                                     Desmatricula de cursos del centro
-                                     core_user_update_users (suspended=1)
-                                     → solo si no tiene otros centros activos
+    Usuario->>App: POST /docentes/baja/{dni}
+    App->>BD: Obtiene roles del docente en este centro
 
-REACTIVACIÓN
-──────────────
-de_baja = false                 ──►  core_user_update_users (suspended=0)
-                                     Re-matrícula en cohortes y cursos
+    alt is_procesado = true
+        loop Por cada rol de tutor/coordinador
+            App->>Moodle: core_cohort_delete_cohort_members
+        end
+        loop Por cada docencia
+            App->>Moodle: enrol_manual_unenrol_users
+        end
+        App->>BD: ¿Tiene otros centros activos?
+        alt Sin otros centros activos
+            App->>Moodle: core_user_update_users (suspended=1)
+        end
+    end
+
+    App->>BD: de_baja=true
+    Note over App,Moodle: Si Moodle falla, la baja en BD se confirma igual
+```
+
+### Reactivación
+
+```mermaid
+sequenceDiagram
+    actor Usuario as Usuario del centro
+    participant App
+    participant BD as BD local
+    participant Moodle
+
+    Usuario->>App: POST /docentes/reactivar/{dni}
+    App->>BD: de_baja=false
+
+    alt is_procesado = true
+        App->>Moodle: core_user_update_users (suspended=0)
+        App->>Moodle: core_cohort_add_cohort_members (roles actuales en BD)
+        App->>Moodle: enrol_manual_enrol_users (docencias actuales en BD)
+    end
 ```
 
 ## Convenciones de nomenclatura
@@ -155,11 +203,11 @@ El Web Service configurado en Moodle debe tener habilitadas las siguientes funci
 
 ### Gestión de errores
 
-Los errores de Moodle **nunca abortan** la operación en BD. El patrón es fire-and-forget con log:
+Todas las operaciones que modifican datos son **atómicas**: si Moodle falla, la operación en BD se revierte con rollback y el usuario ve un mensaje de error. Esto garantiza que la app y Moodle nunca queden desincronizados. Si Moodle no está disponible, ninguna operación que le afecte puede completarse.
 
-- Si Moodle falla al crear un usuario → el docente queda en `failed` en la respuesta JSON, pero no se marca `is_procesado`
-- Si Moodle falla al matricular → se loguea en `moodle_api` y continúa
-- Si Moodle falla al dar de baja → la baja en BD se confirma igualmente
+La única excepción es la matrícula en cohortes/cursos que ocurre **después de crear** un usuario en Moodle (`procesarAltas`): si la creación del usuario tiene éxito pero la matrícula posterior falla, el usuario ya existe en Moodle pero sin sus roles. Este caso se loguea en `moodle_api.log` para revisión; el admin puede volver a procesar el alta (el usuario ya existente se marcará como `skipped` y se re-intentará la matrícula).
+
+**Alta de usuarios** (`createUsers`): si Moodle falla al crear un usuario concreto, ese docente no se marca `is_procesado` y aparece en el campo `failed` de la respuesta JSON. El admin puede reintentar el alta.
 
 ## Requisitos previos en Moodle
 
@@ -178,7 +226,7 @@ coordinadores_ciclo_IFC301
 ...
 ```
 
-Si la cohorte no existe, la operación se omite con un warning en el log (no falla).
+Si la cohorte no existe, la operación se omite con un `WARNING` en el log (no falla).
 
 ### 2. Cursos de módulos
 
@@ -186,7 +234,7 @@ Cada curso debe tener el **shortname** exacto `modulo_{id_modulo}`, donde `id_mo
 
 ### 3. Servicio web y token
 
-En Moodle: `Administración del sitio → Plugins → Web services → Gestionar tokens`. El token debe pertenecer a un usuario administrador y el servicio debe tener habilitadas las funciones listadas en la sección anterior.
+En Moodle: `Administración del sitio → Plugins → Web services → Gestionar tokens`. El token debe pertenecer a un usuario administrador y el servicio debe tener habilitadas las funciones listadas anteriormente.
 
 ### 4. Método de inscripción manual
 
@@ -194,22 +242,33 @@ Los cursos de módulo deben tener activo el **método de inscripción manual** p
 
 ## Logs y diagnóstico
 
-Los logs de la integración van a un canal dedicado (nunca mezcla con `laravel.log`):
+Los logs de la integración van a un canal dedicado que nunca mezcla con `laravel.log`:
 
 ```
 storage/logs/moodle_api.log
 ```
 
 Niveles utilizados:
-- `INFO` — operación ejecutada correctamente (creación, matrícula, suspensión)
-- `WARNING` — cohorte o curso no encontrado, usuario no encontrado (operación omitida)
-- `ERROR` — excepción en la API; la operación falló pero no propagó el error
 
-Para depurar, también útil revisar la respuesta JSON de `procesarAltas` que devuelve `{ok, created, skipped, failed}`.
+| Nivel | Cuándo |
+|-------|--------|
+| `INFO` | Operación ejecutada correctamente (creación, matrícula, suspensión) |
+| `WARNING` | Cohorte o curso no encontrado, usuario no encontrado — operación omitida sin error |
+| `ERROR` | Llamada a Moodle fallida — la operación en BD ya se confirmó, requiere revisión manual |
+
+Para diagnosticar un alta fallida, revisar también la respuesta JSON de `procesarAltas`:
+```json
+{
+  "ok": false,
+  "created": ["12345678A"],
+  "skipped": ["87654321B"],
+  "failed": { "99999999C": "mensaje de error de Moodle" }
+}
+```
 
 ## Pendiente / Limitaciones conocidas
 
 - **Creación automática de cohortes**: si una cohorte no existe en Moodle, la app la omite en lugar de crearla. Se podría implementar `findOrCreateCohort()` con `core_cohort_create_cohorts`.
 - **Reactivación de roles**: al reactivar un docente, se re-matricula en los roles que tenga en la BD en ese momento. Si sus roles fueron eliminados durante la baja, no se recuperan automáticamente.
-- **Suspensión multi-centro**: la suspensión solo se ejecuta si el docente no tiene otros centros activos (`de_baja=false`). Si tiene centros activos en otros institutos, solo se desmatricula de los roles del centro que da la baja.
+- **Suspensión multi-centro**: la suspensión solo se ejecuta si el docente no tiene otros centros activos (`de_baja=false`). Si tiene centros activos en otros institutos, solo se desmatricula de los roles del centro que da la baja, pero la cuenta Moodle permanece activa.
 - **Moosh**: los controladores todavía tienen comentado el código de `exec(moosh ...)` heredado. Puede eliminarse en una limpieza futura.

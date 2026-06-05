@@ -9,7 +9,7 @@ use App\Models\Tutor;
 use App\Services\MoodleApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class EstablecerCoordinadorController extends Controller
@@ -69,23 +69,37 @@ class EstablecerCoordinadorController extends Controller
             if ($yaExisteTutor) {
                 return redirect()->back()->withErrors(['id_ciclo' => 'Ya existe un tutor asignado a este ciclo.']);
             }
-
-            Tutor::create([
-                'id_centro' => $idCentro,
-                'id_ciclo'  => $request->id_ciclo,
-                'dni'       => $request->dni,
-            ]);
-
-            $this->syncAddToCohort($moodle, $request->dni, "tutores_ciclo_{$request->id_ciclo}");
         }
 
-        Coordinador::create([
-            'id_centro' => $idCentro,
-            'id_ciclo'  => $request->id_ciclo,
-            'dni'       => $request->dni,
-        ]);
+        try {
+            DB::transaction(function () use ($request, $idCentro, $moodle) {
+                $docente = Docente::where('dni', $request->dni)->first();
 
-        $this->syncAddToCohort($moodle, $request->dni, "coordinadores_ciclo_{$request->id_ciclo}");
+                if ($request->es_tutor == 1) {
+                    Tutor::create([
+                        'id_centro' => $idCentro,
+                        'id_ciclo'  => $request->id_ciclo,
+                        'dni'       => $request->dni,
+                    ]);
+
+                    if ($docente?->is_procesado) {
+                        $moodle->addToCohort($moodle->usernameFor($docente), "tutores_ciclo_{$request->id_ciclo}");
+                    }
+                }
+
+                Coordinador::create([
+                    'id_centro' => $idCentro,
+                    'id_ciclo'  => $request->id_ciclo,
+                    'dni'       => $request->dni,
+                ]);
+
+                if ($docente?->is_procesado) {
+                    $moodle->addToCohort($moodle->usernameFor($docente), "coordinadores_ciclo_{$request->id_ciclo}");
+                }
+            });
+        } catch (Throwable $e) {
+            return redirect()->back()->withErrors(['error' => 'No se pudo añadir el coordinador: ' . $e->getMessage()]);
+        }
 
         return redirect()->route('establecer_coordinador.index')->with('success', 'Coordinador añadido correctamente.');
     }
@@ -99,52 +113,32 @@ class EstablecerCoordinadorController extends Controller
                     ->where('dni', $coordinador->dni)
                     ->exists();
 
-        if ($request->has('eliminar_tutor') && $esTutor) {
-            Tutor::where('id_centro', $coordinador->id_centro)
-                ->where('id_ciclo', $coordinador->id_ciclo)
-                ->where('dni', $coordinador->dni)
-                ->delete();
+        try {
+            DB::transaction(function () use ($coordinador, $request, $esTutor, $moodle) {
+                $docente = Docente::where('dni', $coordinador->dni)->first();
 
-            $this->syncRemoveFromCohort($moodle, $coordinador->dni, "tutores_ciclo_{$coordinador->id_ciclo}");
+                if ($request->has('eliminar_tutor') && $esTutor) {
+                    Tutor::where('id_centro', $coordinador->id_centro)
+                        ->where('id_ciclo', $coordinador->id_ciclo)
+                        ->where('dni', $coordinador->dni)
+                        ->delete();
+
+                    if ($docente?->is_procesado) {
+                        $moodle->removeFromCohort($moodle->usernameFor($docente), "tutores_ciclo_{$coordinador->id_ciclo}");
+                    }
+                }
+
+                $coordinador->delete();
+
+                if ($docente?->is_procesado) {
+                    $moodle->removeFromCohort($moodle->usernameFor($docente), "coordinadores_ciclo_{$coordinador->id_ciclo}");
+                }
+            });
+        } catch (Throwable $e) {
+            return redirect()->back()->withErrors(['error' => 'No se pudo eliminar el coordinador: ' . $e->getMessage()]);
         }
-
-        $coordinador->delete();
-
-        $this->syncRemoveFromCohort($moodle, $coordinador->dni, "coordinadores_ciclo_{$coordinador->id_ciclo}");
 
         return redirect()->back()->with('success', 'Coordinador eliminado correctamente' .
             ($request->has('eliminar_tutor') && $esTutor ? ' y también se ha eliminado como tutor' : ''));
-    }
-
-    // ── Helpers de sync Moodle (fire-and-forget, sin afectar la respuesta) ──
-
-    private function syncAddToCohort(MoodleApiService $moodle, string $dni, string $cohort): void
-    {
-        $docente = Docente::where('dni', $dni)->first();
-        if (! $docente?->is_procesado) {
-            return;
-        }
-        try {
-            $moodle->addToCohort($moodle->usernameFor($docente), $cohort);
-        } catch (Throwable $e) {
-            Log::channel('moodle_api')->error('Error sync add cohorte coordinador', [
-                'dni' => $dni, 'cohort' => $cohort, 'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    private function syncRemoveFromCohort(MoodleApiService $moodle, string $dni, string $cohort): void
-    {
-        $docente = Docente::where('dni', $dni)->first();
-        if (! $docente?->is_procesado) {
-            return;
-        }
-        try {
-            $moodle->removeFromCohort($moodle->usernameFor($docente), $cohort);
-        } catch (Throwable $e) {
-            Log::channel('moodle_api')->error('Error sync remove cohorte coordinador', [
-                'dni' => $dni, 'cohort' => $cohort, 'error' => $e->getMessage(),
-            ]);
-        }
     }
 }

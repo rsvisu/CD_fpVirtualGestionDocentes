@@ -9,7 +9,7 @@ use App\Models\Ciclo;
 use App\Services\MoodleApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class EstablecerTutorController extends Controller
@@ -61,13 +61,22 @@ class EstablecerTutorController extends Controller
             return redirect()->back()->withErrors(['id_ciclo' => 'Ya existe un tutor asignado a este ciclo.']);
         }
 
-        Tutor::create([
-            'id_centro' => $idCentro,
-            'id_ciclo'  => $request->id_ciclo,
-            'dni'       => $request->dni,
-        ]);
+        try {
+            DB::transaction(function () use ($request, $idCentro, $moodle) {
+                Tutor::create([
+                    'id_centro' => $idCentro,
+                    'id_ciclo'  => $request->id_ciclo,
+                    'dni'       => $request->dni,
+                ]);
 
-        $this->syncAddToCohort($moodle, $request->dni, "tutores_ciclo_{$request->id_ciclo}");
+                $docente = Docente::where('dni', $request->dni)->first();
+                if ($docente?->is_procesado) {
+                    $moodle->addToCohort($moodle->usernameFor($docente), "tutores_ciclo_{$request->id_ciclo}");
+                }
+            });
+        } catch (Throwable $e) {
+            return redirect()->back()->withErrors(['error' => 'No se pudo añadir el tutor: ' . $e->getMessage()]);
+        }
 
         return redirect()->route('establecer_tutor.index')->with('success', 'Tutor añadido correctamente.');
     }
@@ -81,52 +90,32 @@ class EstablecerTutorController extends Controller
                     ->where('dni', $tutor->dni)
                     ->exists();
 
-        if ($request->has('eliminar_coordinador') && $esCoordinador) {
-            Coordinador::where('id_centro', $tutor->id_centro)
-                ->where('id_ciclo', $tutor->id_ciclo)
-                ->where('dni', $tutor->dni)
-                ->delete();
+        try {
+            DB::transaction(function () use ($tutor, $request, $esCoordinador, $moodle) {
+                $docente = Docente::where('dni', $tutor->dni)->first();
 
-            $this->syncRemoveFromCohort($moodle, $tutor->dni, "coordinadores_ciclo_{$tutor->id_ciclo}");
+                if ($request->has('eliminar_coordinador') && $esCoordinador) {
+                    Coordinador::where('id_centro', $tutor->id_centro)
+                        ->where('id_ciclo', $tutor->id_ciclo)
+                        ->where('dni', $tutor->dni)
+                        ->delete();
+
+                    if ($docente?->is_procesado) {
+                        $moodle->removeFromCohort($moodle->usernameFor($docente), "coordinadores_ciclo_{$tutor->id_ciclo}");
+                    }
+                }
+
+                $tutor->delete();
+
+                if ($docente?->is_procesado) {
+                    $moodle->removeFromCohort($moodle->usernameFor($docente), "tutores_ciclo_{$tutor->id_ciclo}");
+                }
+            });
+        } catch (Throwable $e) {
+            return redirect()->back()->withErrors(['error' => 'No se pudo eliminar el tutor: ' . $e->getMessage()]);
         }
-
-        $tutor->delete();
-
-        $this->syncRemoveFromCohort($moodle, $tutor->dni, "tutores_ciclo_{$tutor->id_ciclo}");
 
         return redirect()->back()->with('success', 'Tutor eliminado correctamente' .
             ($request->has('eliminar_coordinador') && $esCoordinador ? ' y también se ha eliminado como coordinador' : ''));
-    }
-
-    // ── Helpers de sync Moodle (fire-and-forget, sin afectar la respuesta) ──
-
-    private function syncAddToCohort(MoodleApiService $moodle, string $dni, string $cohort): void
-    {
-        $docente = Docente::where('dni', $dni)->first();
-        if (! $docente?->is_procesado) {
-            return;
-        }
-        try {
-            $moodle->addToCohort($moodle->usernameFor($docente), $cohort);
-        } catch (Throwable $e) {
-            Log::channel('moodle_api')->error('Error sync add cohorte tutor', [
-                'dni' => $dni, 'cohort' => $cohort, 'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    private function syncRemoveFromCohort(MoodleApiService $moodle, string $dni, string $cohort): void
-    {
-        $docente = Docente::where('dni', $dni)->first();
-        if (! $docente?->is_procesado) {
-            return;
-        }
-        try {
-            $moodle->removeFromCohort($moodle->usernameFor($docente), $cohort);
-        } catch (Throwable $e) {
-            Log::channel('moodle_api')->error('Error sync remove cohorte tutor', [
-                'dni' => $dni, 'cohort' => $cohort, 'error' => $e->getMessage(),
-            ]);
-        }
     }
 }
